@@ -5,7 +5,9 @@
 
 #include "lexer.hpp"
 
-std::string load_from(std::filesystem::path filename) {
+namespace fs = std::filesystem;
+
+std::string load_from(fs::path filename) {
     std::ifstream file(filename);
     std::stringstream buffer;
 
@@ -14,7 +16,7 @@ std::string load_from(std::filesystem::path filename) {
     return buffer.str();
 }
 
-void compile(std::filesystem::path filename) {
+void compile(fs::path filename) {
     std::string src = load_from(filename);
     
     Lexer lexer(src);
@@ -22,8 +24,10 @@ void compile(std::filesystem::path filename) {
 }
 
 void tests() {
-    std::string path = "./tests";
-    for (const auto& entry : std::filesystem::directory_iterator(path)) {
+    fs::path path = fs::current_path() / "test";
+    std::cout << fs::current_path().append("test") << std::endl;
+
+    for (const auto& entry : fs::directory_iterator(path)) {
         compile(entry.path());
     }
 }

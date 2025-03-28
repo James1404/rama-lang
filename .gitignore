@@ -61,6 +61,21 @@ out/
 # Built Visual Studio Code Extensions
 *.vsix
 
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+CMakeUserPresets.json
+CPackConfig.cmake
+CPackSourceConfig.cmake
+
 build/
 
 *~
@@ -68,29 +83,4 @@ build/
 
 .direnv/
 .envrc
-
-
-# This file is for zig-specific build artifacts.
-# If you have OS-specific or editor-specific files to ignore,
-# such as *.swp or .DS_Store, put those in your global
-# ~/.gitignore and put this in your ~/.gitconfig:
-#
-# [core]
-#     excludesfile = ~/.gitignore
-#
-# Cheers!
-# -andrewrk
-
-.zig-cache/
-zig-out/
-/release/
-/debug/
-/build/
-/build-*/
-/docgen_tmp/
-
-# Although this was renamed to .zig-cache, let's leave it here for a few
-# releases to make it less annoying to work with multiple branches.
-zig-cache/
-
-valgrind-out.txt
+rama
