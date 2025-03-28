@@ -1,0 +1,6 @@
+[submodule "deps/argparse"]
+	path = deps/argparse
+	url = git@github.com:p-ranav/argparse.git
+[submodule "deps/fmt"]
+	path = deps/fmt
+	url = git@github.com:fmtlib/fmt.git
