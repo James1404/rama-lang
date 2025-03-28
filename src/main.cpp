@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "fmt/base.h"
 #include "lexer.hpp"
 
 #include <fmt/core.h>
@@ -37,13 +38,21 @@ void compile(fs::path filename) {
     
     Lexer lexer(src);
     auto tokens = lexer.run();
+
+    for (const auto& tok : tokens) {
+        fmt::println("{}: \"{}\"", (int)tok.type, tok.text);
+    }
 }
 
 void tests() {
     fs::path path = fs::current_path() / "test";
 
+    int index = 0;
     for (const auto& entry : fs::directory_iterator(path)) {
+        fmt::println("<=== Running test {} ===>", index);
         compile(entry.path());
+
+        index++;
     }
 }
 
@@ -52,11 +61,10 @@ int main(int argc, char *argv[]) {
 
     program.add_argument("--verbose").default_value(false).implicit_value(true);
 
-    argparse::ArgumentParser test_command("test");
+    argparse::ArgumentParser test_command("run_tests");
     test_command.add_description("Run all the builtin test files");
 
     program.add_subparser(test_command);
-
 
     try {
         program.parse_args(argc, argv);

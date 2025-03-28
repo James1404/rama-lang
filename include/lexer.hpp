@@ -24,6 +24,9 @@ class Lexer {
     bool eof();
 
     void append_token(TokenType type);
+    void append_ident();
+    void append_single(TokenType type);
+    void append_single_or_next(char cond, TokenType t, TokenType f);
 public:
     Lexer(std::string_view src);
     
