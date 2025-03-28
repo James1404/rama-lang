@@ -1,9 +1,8 @@
 #include "token.hpp"
 
 #include <map>
-#include <string>
 
-static std::map<std::string_view, TokenType> keywords = {
+static std::map<string_view, TokenType> keywords = {
     {"true", TokenType::True},
     {"false", TokenType::False},
 
@@ -27,7 +26,7 @@ static std::map<std::string_view, TokenType> keywords = {
     {"return", TokenType::Return},
 };
 
-TokenType string_to_tokentype(std::string_view str) {
+TokenType string_to_tokentype(string_view str) {
     if (auto iter = keywords.find(str); iter != keywords.end()) {
         return iter->second;
     }

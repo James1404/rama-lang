@@ -1,11 +1,11 @@
 #include "lexer.hpp"
-#include "fmt/base.h"
 #include "token.hpp"
+
 #include <cassert>
 #include <cstdlib>
 #include <utility>
 
-Lexer::Lexer(std::string_view src) {
+Lexer::Lexer(string_view src) {
     this->src = src;
 }
 

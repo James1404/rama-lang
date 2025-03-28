@@ -1,18 +1,17 @@
 #pragma once
 
+#include "common.hpp"
 #include "token.hpp"
 
-#include <vector>
-
 class Lexer {
-    std::string_view src;
-    std::vector<Token> out;
+    string_view src;
+    vec<Token> out;
 
-    int start = 0;
-    int location = 0;
+    i32 start = 0;
+    i32 location = 0;
 
-    int line = 0;
-    int line_offset = 0;
+    i32 line = 0;
+    i32 line_offset = 0;
 
     char current();
 
@@ -28,7 +27,7 @@ class Lexer {
     void append_single(TokenType type);
     void append_single_or_next(char cond, TokenType t, TokenType f);
 public:
-    Lexer(std::string_view src);
+    Lexer(string_view src);
     
-    std::vector<Token> run();
+    vec<Token> run();
 };

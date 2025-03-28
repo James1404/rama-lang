@@ -1,5 +1,6 @@
 #pragma once
-#include <string_view>
+
+#include "common.hpp"
 
 enum class TokenType {
     None,
@@ -63,10 +64,10 @@ enum class TokenType {
 
 struct Token {
     TokenType type;
-    int location;
-    int line;
-    int line_offset;
-    std::string_view text;
+    i32 location;
+    i32 line;
+    i32 line_offset;
+    string_view text;
 };
 
-TokenType string_to_tokentype(std::string_view str);
+TokenType string_to_tokentype(string_view str);
