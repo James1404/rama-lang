@@ -4,6 +4,7 @@
 
 #include "common.hpp"
 #include "lexer.hpp"
+#include "parser.hpp"
 
 #include <argparse/argparse.hpp>
 
@@ -30,13 +31,16 @@ string load_from(fs::path filename) {
 
 void compile(fs::path filename) {
     string src = load_from(filename);
-    
+
     Lexer lexer(src);
     auto tokens = lexer.run();
 
-    for (const auto& tok : tokens) {
-        fmt::println("{}: \"{}\"", (i32)tok.type, tok.text);
-    }
+    // for (const auto& tok : tokens) {
+    //     fmt::println("{}: \"{}\"", (i32)tok.type, tok.text);
+    // }
+
+    Parser parser(tokens);
+    auto ast = parser.run();
 }
 
 void tests() {
@@ -51,7 +55,7 @@ void tests() {
     }
 }
 
-i32 main(i32 argc, char *argv[]) {
+i32 main(i32 argc, char* argv[]) {
     argparse::ArgumentParser program("rama");
 
     program.add_argument("--verbose").default_value(false).implicit_value(true);
@@ -63,14 +67,13 @@ i32 main(i32 argc, char *argv[]) {
 
     try {
         program.parse_args(argc, argv);
-    }
-    catch (const std::exception& err) {
+    } catch (const std::exception& err) {
         std::cerr << err.what() << std::endl;
         std::cerr << program;
         return 1;
     }
 
-    if(program.is_subcommand_used(test_command)) {
+    if (program.is_subcommand_used(test_command)) {
         tests();
     }
 }

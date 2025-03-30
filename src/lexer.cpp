@@ -5,20 +5,14 @@
 #include <cstdlib>
 #include <utility>
 
-Lexer::Lexer(string_view src) {
-    this->src = src;
-}
+Lexer::Lexer(string_view src) { this->src = src; }
 
-char Lexer::current() {
-    return this->src.at(this->location);
-}
+char Lexer::current() { return this->src.at(this->location); }
 
-void Lexer::advance() {
-    this->location++;
-}
+void Lexer::advance() { this->location++; }
 
 bool Lexer::advance_if(char c) {
-    if(this->match(c)) {
+    if (this->match(c)) {
         this->advance();
         return true;
     }
@@ -31,29 +25,28 @@ bool Lexer::match(char c) { return this->current() == c; }
 bool Lexer::eof() { return this->location >= this->src.size(); }
 
 void Lexer::append_token(TokenType type) {
-    this->out.push_back(Token {
-            .type = type,
-            .location = this->start,
-            .line = this->line,
-            .line_offset = this->line_offset,
-            .text = this->src.substr(this->start, this->location - this->start),
-        });
+    this->out.push_back(Token{
+        .type = type,
+        .location = this->start,
+        .line = this->line,
+        .line_offset = this->line_offset,
+        .text = this->src.substr(this->start, this->location - this->start),
+    });
 }
 
 void Lexer::append_ident() {
     auto text = this->src.substr(this->start, this->location - this->start);
 
     TokenType type = string_to_tokentype(text);
-    
-    this->out.push_back(Token {
-            .type = type,
-            .location = this->start,
-            .line = this->line,
-            .line_offset = this->line_offset,
-            .text = text,
-        });
-}
 
+    this->out.push_back(Token{
+        .type = type,
+        .location = this->start,
+        .line = this->line,
+        .line_offset = this->line_offset,
+        .text = text,
+    });
+}
 
 void Lexer::append_single(TokenType type) {
     this->advance();
@@ -73,35 +66,68 @@ static bool is_digit(char c) { return (c >= '0' && c <= '9'); }
 
 static bool is_ident_start_char(char c) { return is_letter(c) || c == '_'; }
 static bool is_ident_middle_char(char c) {
-  return is_ident_start_char(c) || is_digit(c);
+    return is_ident_start_char(c) || is_digit(c);
 }
 
 std::vector<Token> Lexer::run() {
-    while(!this->eof()) {
+    while (!this->eof()) {
         char c = this->current();
         this->start = this->location;
 
         switch (c) {
-        case '(': { this->append_single(TokenType::LParen); } break;
-        case ')': { this->append_single(TokenType::RParen); } break;
-        case '{': { this->append_single(TokenType::LBrace); } break;
-        case '}': { this->append_single(TokenType::RBrace); } break;
-        case '[': { this->append_single(TokenType::LBracket); } break;
-        case ']': { this->append_single(TokenType::RBracket); } break;
-            
-        case ';': { this->append_single(TokenType::SemiColon); } break;
-        case ':': { this->append_single(TokenType::Colon); } break;
+        case '(': {
+            this->append_single(TokenType::LParen);
+        } break;
+        case ')': {
+            this->append_single(TokenType::RParen);
+        } break;
+        case '{': {
+            this->append_single(TokenType::LBrace);
+        } break;
+        case '}': {
+            this->append_single(TokenType::RBrace);
+        } break;
+        case '[': {
+            this->append_single(TokenType::LBracket);
+        } break;
+        case ']': {
+            this->append_single(TokenType::RBracket);
+        } break;
 
-        case '.': { this->append_single(TokenType::Dot); } break;
-        case ',': { this->append_single(TokenType::Comma); } break;
+        case ';': {
+            this->append_single(TokenType::SemiColon);
+        } break;
+        case ':': {
+            this->append_single(TokenType::Colon);
+        } break;
 
-        case '+': { this->append_single(TokenType::Plus); } break;
-        case '-': { this->append_single(TokenType::Minus); } break;
-        case '*': { this->append_single(TokenType::Multiply); } break;
-        case '/': { this->append_single(TokenType::Divide); } break;
+        case '.': {
+            this->append_single(TokenType::Dot);
+        } break;
+        case ',': {
+            this->append_single(TokenType::Comma);
+        } break;
 
-        case '=': { this->append_single_or_next('=', TokenType::EqualEq, TokenType::Equal); } break;
-        case '!': { this->append_single_or_next('=', TokenType::NotEq, TokenType::Not); } break;
+        case '+': {
+            this->append_single(TokenType::Plus);
+        } break;
+        case '-': {
+            this->append_single(TokenType::Minus);
+        } break;
+        case '*': {
+            this->append_single(TokenType::Multiply);
+        } break;
+        case '/': {
+            this->append_single(TokenType::Divide);
+        } break;
+
+        case '=': {
+            this->append_single_or_next('=', TokenType::EqualEq,
+                                        TokenType::Equal);
+        } break;
+        case '!': {
+            this->append_single_or_next('=', TokenType::NotEq, TokenType::Not);
+        } break;
 
         case '"': {
             this->advance();
@@ -124,10 +150,10 @@ std::vector<Token> Lexer::run() {
         } break;
 
         default: {
-            if(is_ident_start_char(c)) {
+            if (is_ident_start_char(c)) {
                 this->advance();
 
-                while(is_ident_middle_char(this->current())) {
+                while (is_ident_middle_char(this->current())) {
                     this->advance();
                 }
 
@@ -135,17 +161,19 @@ std::vector<Token> Lexer::run() {
                 continue;
             }
 
-            if(is_digit(c)) {
+            if (is_digit(c)) {
                 this->advance();
 
                 bool is_float = false;
                 while (is_digit(this->current()) || this->current() == '.') {
-                    if(this->match('.')) is_float = true;
-                    
+                    if (this->match('.'))
+                        is_float = true;
+
                     this->advance();
                 }
 
-                this->append_token(is_float ? TokenType::Float : TokenType::Int);
+                this->append_token(is_float ? TokenType::Float
+                                            : TokenType::Int);
                 continue;
             }
 

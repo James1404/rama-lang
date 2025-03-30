@@ -2,7 +2,7 @@
 
 #include "common.hpp"
 
-namespace TIR {
+namespace UIR {
     // Register index
     using Ref = usize;
 
@@ -37,7 +37,6 @@ namespace TIR {
         Deref, // %0 = *(%1)
 
         // Terminators
-
         Goto, // goto %0
         If, // if %0 then goto %1 else goto %2
         Return, // return %0
@@ -59,5 +58,16 @@ namespace TIR {
         Loc append();
         BasicBlock* get(Loc loc);
         Ref reg();
+    };
+
+    struct Decl {
+        enum class Mode {
+            Var,
+            Const,
+            Fn
+        };
+        
+        Mode mode;
+        CFG graph;
     };
 }
