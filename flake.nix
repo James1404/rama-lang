@@ -22,6 +22,7 @@
               llvm_18
               valgrind
               cmake
+              ninja
             ];
           });
         }

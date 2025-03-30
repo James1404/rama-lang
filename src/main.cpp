@@ -41,6 +41,8 @@ void compile(fs::path filename) {
 
     Parser parser(tokens);
     auto ast = parser.run();
+
+    ast.pretty_print();
 }
 
 void tests() {

@@ -8,6 +8,11 @@
 namespace AST {
     using Ref = usize;
 
+    struct Error {
+        string_view msg;
+        Token tok;
+    };
+
     struct Binary {
         Ref lhs;
         Ref rhs;
@@ -20,13 +25,13 @@ namespace AST {
     };
 
     struct Float {
-        string value;
+        string_view value;
     };
     struct Int {
-        string value;
+        string_view value;
     };
     struct String {
-        string value;
+        string_view value;
     };
     struct Bool {
         bool value;
@@ -133,6 +138,8 @@ namespace AST {
     };
 
     using Node = std::variant<
+        Error,
+        
         Binary, Unary,
 
         Float, Int, String, Bool, Ident,
@@ -170,6 +177,7 @@ namespace AST {
         Cast>;
 
     class AST {
+        std::optional<Ref> root = {};
         vec<Node> data;
 
     public:
@@ -177,5 +185,7 @@ namespace AST {
         Node* get_ptr(Ref ref);
 
         void pretty_print();
+
+        Ref alloc(Node node);
     };
 } // namespace AST

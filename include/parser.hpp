@@ -14,6 +14,8 @@ class Parser {
     bool advance_if(TokenType type);
     bool match(TokenType type);
 
+    AST::Ref advance_alloc(AST::Node node);
+
     AST::Ref parse_ident();
 
     AST::Ref parse_value();
@@ -31,6 +33,9 @@ class Parser {
     AST::Ref parse_fn_decl();
     AST::Ref parse_fn_stmt();
     AST::Ref parse_stmt();
+
+    AST::Ref parse_scope();
+    AST::Ref parse_toplevel();
 
   public:
     AST::AST run();

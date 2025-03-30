@@ -25,6 +25,14 @@ set(rama_CURRENT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_subdirectory(${rama_CURRENT_DIR}/deps/fmt)
 
+if (MSVC)
+    # warning level 4
+    add_compile_options(/W4)
+else()
+    # additional warnings
+    add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
 include(FetchContent)
 FetchContent_Declare(
     argparse

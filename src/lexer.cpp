@@ -122,8 +122,9 @@ std::vector<Token> Lexer::run() {
         } break;
 
         case '=': {
-            this->append_single_or_next('=', TokenType::EqualEq,
-                                        TokenType::Equal);
+            this->append_single_or_next(
+                '=', TokenType::EqualEq, TokenType::Equal
+            );
         } break;
         case '!': {
             this->append_single_or_next('=', TokenType::NotEq, TokenType::Not);
@@ -172,8 +173,9 @@ std::vector<Token> Lexer::run() {
                     this->advance();
                 }
 
-                this->append_token(is_float ? TokenType::Float
-                                            : TokenType::Int);
+                this->append_token(
+                    is_float ? TokenType::Float : TokenType::Int
+                );
                 continue;
             }
 

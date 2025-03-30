@@ -42,16 +42,8 @@ enum class TokenType {
     // Keywords
     True, False,
 
-    Type,
-    Enum,
-    Struct,
-
-    Const,
-    Var,
-
-    Import,
-    
-    Fn,
+    If,
+    Else,
 
     For,
     While,
@@ -60,6 +52,27 @@ enum class TokenType {
     Continue,
     Break,
     Return,
+
+    And,
+    Or,
+
+    Comptime,
+    Extern,
+    
+    Type,
+    Enum,
+    Struct,
+    Distinct,
+
+    Const,
+    Var,
+
+    Import,
+    
+    Fn,
+
+    Defer,
+    As,
 };
 
 struct Token {
