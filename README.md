@@ -1,14 +1,16 @@
-# Warlock
+# Rama
 
-Warlock is a work-in-progress, custom lisp dialect, focused on speed, low level control, and safety.
+Rama is a work-in-progress, programming language, that's focused on speed, low level control, and safety.
 
-The goal of this langauge for it to be suitable for system's programming, similar to C. So Warlock will support manual memory management, and strong type system, and a borrow checker for better safety guarentees.
+The goal of this langauge for it to be suitable for system's programming, similar to C. So Rama will support manual memory management, and strong type system, and a potentially even a borrow checker for better safety guarentees.
 
-Warlock will be compiled to machine code via LLVM, meaning you'll have a fast binary to use.
+Rama will be compiled to machine code via LLVM, meaning you'll have a fast binary to use.
 
-- [ ] Implement compile time macros.
-- [ ] Add a static type system from the paper [Complete and Easy Bidirectional Typechecking for Higher-Rank Polymorphism](https://arxiv.org/pdf/1306.6032).
-- [ ] Compile to machine code using LLVM
+- [x] Complete the lexer.
+- [ ] Complete the parser.
+- [ ] Add UIR IR for compile time execution and for type checking / inference.
+- [ ] Compile UIR to a lower level typed IR (TIR), with fully defined types.
+- [ ] Compile TIR down to machine code via LLVM.
 - [ ] Implement a borrow checker to guarantee memory safety.
 
 ## Building
