@@ -8,7 +8,7 @@ Rama will be compiled to machine code via LLVM, meaning you'll have a fast binar
 
 - [x] Complete the lexer.
 - [ ] Complete the parser.
-- [ ] Add UIR IR for compile time execution and for type checking / inference.
+- [ ] Add an untyped IR (UIR) for compile time execution and for type checking / inference.
 - [ ] Compile UIR to a lower level typed IR (TIR), with fully defined types.
 - [ ] Compile TIR down to machine code via LLVM.
 - [ ] Implement a borrow checker to guarantee memory safety.
