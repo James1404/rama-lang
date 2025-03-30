@@ -4,25 +4,24 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, flake-utils, nixpkgs, ... }:
+  outputs = { self, flake-utils, nixpkgs, rust-overlay, ... }:
     flake-utils.lib.eachDefaultSystem
       (system:
         let
-          pkgs = import nixpkgs { inherit system; overlays = []; };
+          pkgs = import nixpkgs { inherit system; overlays = [(import rust-overlay)];  };
         in {
           devShells.default = (pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
             packages = with pkgs; [
               pkg-config
-	            bear
-              lldb
-              gperf
-              clang-tools
-              llvm_18
-              valgrind
-              cmake
-              ninja
+
+              rust-bin.stable.latest.default
+              rust-analyzer
             ];
           });
         }

@@ -135,3 +135,7 @@ rama
 # Visual Studio files
 /.vs/
 /out/
+
+# Added by cargo
+
+/target
