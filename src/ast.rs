@@ -1,13 +1,14 @@
 use log::error;
+use strum_macros::IntoStaticStr;
 
 use crate::tokens::Token;
 
 pub type Ref = usize;
 
-#[derive(Clone)]
+#[derive(Clone, IntoStaticStr)]
 pub enum Node<'a> {
     Error {
-        msg: String,
+        msg: &'a str,
         token: Token<'a>,
     },
 
@@ -113,9 +114,10 @@ pub enum Node<'a> {
     },
 }
 
+#[derive(Clone)]
 pub struct AST<'a> {
     data: Vec<Node<'a>>,
-    root: Option<Ref>,
+    pub root: Option<Ref>,
 }
 
 impl<'a> AST<'a> {
@@ -137,6 +139,12 @@ impl<'a> AST<'a> {
     }
 
     fn print(&self, handle: Ref, indentation: usize) {
+        print!(
+            "{}{}:",
+            "\t".repeat(indentation),
+            Into::<&'static str>::into(self.get(handle))
+        );
+
         match self.get(handle) {
             Node::Error { msg, token } => todo!(),
             Node::Binary { lhs, rhs, op } => todo!(),
@@ -176,8 +184,7 @@ impl<'a> AST<'a> {
     pub fn pretty_print(&self) {
         if let Some(root) = self.root {
             self.print(root, 0);
-        }
-        else {
+        } else {
             error!("Error: AST has not been generated");
         }
     }

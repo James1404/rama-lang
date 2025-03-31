@@ -5,6 +5,9 @@ edition = "2024"
 description = "A small WIP compiler for a new programming language"
 authors = [ "James Barnfather" ]
 
+[profile.dev]
+opt-level = 1
+
 [dependencies]
 phf = { version = "0.11.3", features = [ "macros" ] }
 

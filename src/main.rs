@@ -9,6 +9,7 @@ mod ast;
 mod lexer;
 mod parser;
 mod tokens;
+mod uir;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]
@@ -36,7 +37,7 @@ where
         println!("{}: \"{}\"", Into::<&'static str>::into(&tok.ty), tok.text);
     }
 
-    let parser = Parser::new(tokens);
+    let parser = Parser::new(&tokens);
     let ast = parser.run();
 
     ast.pretty_print();

@@ -3,20 +3,21 @@ use crate::{
     tokens::{Token, TokenType},
 };
 
+#[derive(Debug, Clone, Copy)]
 struct Cursor<'a> {
     position: usize,
-    tokens: Vec<Token<'a>>,
+    tokens: &'a [Token<'a>],
 }
 
 impl<'a> Cursor<'a> {
-    fn new(tokens: Vec<Token<'a>>) -> Self {
+    fn new(tokens: &'a Vec<Token<'a>>) -> Self {
         Self {
             position: 0,
-            tokens,
+            tokens: tokens.as_slice(),
         }
     }
 
-    fn eof(&self) -> bool {
+    fn eof(self) -> bool {
         self.position >= self.tokens.len()
     }
 
@@ -24,11 +25,11 @@ impl<'a> Cursor<'a> {
         self.position += 1;
     }
 
-    fn current(&self) -> Token {
+    fn current(self) -> Token<'a> {
         self.tokens[self.position].clone()
     }
 
-    fn peek(&self) -> Option<Token> {
+    fn peek(self) -> Option<Token<'a>> {
         let index = self.position + 1;
 
         if index > self.tokens.len() {
@@ -38,11 +39,11 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    fn matches(&self, expected: &TokenType) -> bool {
+    fn matches(self, expected: &TokenType) -> bool {
         self.current().ty == *expected
     }
 
-    fn matches_next(&self, expected: &TokenType) -> bool {
+    fn matches_next(self, expected: &TokenType) -> bool {
         let next = self.peek();
 
         match next {
@@ -66,17 +67,23 @@ impl<'a> Cursor<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct Parser<'a> {
     ast: AST<'a>,
     cursor: Cursor<'a>,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: Vec<Token<'a>>) -> Self {
+    pub fn new(tokens: &'a Vec<Token<'a>>) -> Self {
         Self {
             cursor: Cursor::new(tokens),
             ast: AST::new(),
         }
+    }
+
+    fn advance_alloc(&'a mut self, node: ast::Node<'a>) -> ast::Ref {
+        self.cursor.advance();
+        self.ast.alloc(node)
     }
 
     fn parse_ident(&'a mut self) -> ast::Ref {
@@ -85,13 +92,74 @@ impl<'a> Parser<'a> {
         match tok.ty {
             TokenType::Ident => self.ast.alloc(ast::Node::Ident(tok)),
             _ => self.ast.alloc(ast::Node::Error {
-                msg: "Unable to parse identifier".to_string(),
+                msg: "Unable to parse identifier",
                 token: tok,
             }),
         }
     }
 
-    pub fn run(self) -> AST<'a> {
+    fn parse_if(&'a mut self) -> ast::Ref {
+        todo!()
+    }
+
+    fn parse_expr(&'a mut self) -> ast::Ref {
+        todo!()
+    }
+
+    fn parse_value(&'a mut self) -> ast::Ref {
+        let tok = self.cursor.current();
+
+        let value = match tok.ty {
+            TokenType::String => self.advance_alloc(ast::Node::String(tok.text)),
+            TokenType::Float => self.advance_alloc(ast::Node::Float(tok.text)),
+            TokenType::Int => self.advance_alloc(ast::Node::Int(tok.text)),
+            TokenType::Ident => self.advance_alloc(ast::Node::Ident(tok)),
+
+            TokenType::True => self.advance_alloc(ast::Node::Bool(true)),
+            TokenType::False => self.advance_alloc(ast::Node::Bool(false)),
+
+            TokenType::If => self.parse_if(),
+
+            TokenType::Comptime => {
+                self.cursor.advance();
+                let expr = self.parse_expr();
+                self.ast.alloc(ast::Node::Comptime(expr))
+            }
+
+            _ => {
+                return self.advance_alloc(ast::Node::Error {
+                    msg: "Unable to parse value",
+                    token: tok,
+                });
+            }
+        };
+
+        value
+    }
+
+    fn parse_toplevel_stmt(&'a mut self) -> ast::Ref {
+        let list = vec![];
+        self.ast.alloc(ast::Node::TopLevelScope(list))
+    }
+
+    fn parse_toplevel(&'a mut self) -> ast::Ref {
+        let mut list: Vec<ast::Ref> = vec![];
+
+        loop {
+            if self.cursor.eof() {
+                break;
+            }
+
+            list.push(self.parse_toplevel_stmt());
+        }
+
+        self.ast.alloc(ast::Node::TopLevelScope(list))
+    }
+
+    pub fn run(mut self) -> AST<'a> {
+        let toplevel = self.parse_toplevel();
+        self.ast.root = Some(toplevel);
+
         self.ast
     }
 }
