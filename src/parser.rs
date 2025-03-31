@@ -91,7 +91,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn run(self) -> AST<'a> {
+    pub fn run(self) -> AST<'a> {
         self.ast
     }
 }

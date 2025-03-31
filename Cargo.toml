@@ -2,8 +2,16 @@
 name = "rama-lang"
 version = "0.1.0"
 edition = "2024"
+description = "A small WIP compiler for a new programming language"
+authors = [ "James Barnfather" ]
 
 [dependencies]
 phf = { version = "0.11.3", features = [ "macros" ] }
+
 strum = "0.27.1"
 strum_macros = "0.27.1"
+
+clap = { version = "4.5.34", features = [ "derive" ] }
+
+log = "0.4.27"
+env_logger = "0.11.7"

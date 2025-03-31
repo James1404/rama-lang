@@ -106,7 +106,18 @@ impl<'a> Lexer<'a> {
                 b'+' => self.append_single_or_next(b'=', TokenType::PlusEq, TokenType::Plus),
                 b'-' => self.append_single_or_next(b'=', TokenType::MinusEq, TokenType::Minus),
                 b'*' => self.append_single_or_next(b'=', TokenType::MulEq, TokenType::Asterix),
-                b'/' => self.append_single_or_next(b'=', TokenType::DivEq, TokenType::Slash),
+                b'/' => {
+                    self.advance();
+
+                    match self.current() {
+                        b'/' => while !self.matches(b'\n') {
+                            self.advance();
+                        },
+                        b'*' => todo!("Add multiline comments"),
+                        b'=' => self.append_single(TokenType::DivEq),
+                        _ => self.append(TokenType::Slash),
+                    }
+                },
 
                 b'=' => self.append_single_or_next(b'=', TokenType::EqualEqual, TokenType::Equal),
                 b'!' => self.append_single_or_next(b'=', TokenType::NotEqual, TokenType::Not),
