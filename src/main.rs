@@ -4,12 +4,17 @@ use lexer::Lexer;
 use parser::Parser;
 
 use clap::{Parser as ClapParser, Subcommand};
+use sema::Sema;
+use uirgen::UIRGen;
 
 mod ast;
 mod lexer;
 mod parser;
+mod sema;
+mod tir;
 mod tokens;
 mod uir;
+mod uirgen;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]
@@ -42,6 +47,16 @@ where
 
     ast.pretty_print();
 
+    let uirgen = UIRGen::new(ast);
+    let uir = uirgen.run();
+
+    uir.pretty_print();
+
+    let sema = Sema::new(uir);
+    let tir = sema.run();
+
+    tir.pretty_print();
+
     Ok(())
 }
 
@@ -62,14 +77,14 @@ fn tests() -> io::Result<()> {
 
 fn main() -> io::Result<()> {
     env_logger::init();
-    
+
     let cli = Cli::parse();
 
     match &cli.command {
         Some(Commands::Test) => {
             tests()?;
-        },
-        None => {},
+        }
+        None => {}
     }
 
     Ok(())

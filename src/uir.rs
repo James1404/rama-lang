@@ -21,7 +21,7 @@ pub enum Builtin {
     F64,
 
     Any,
-    Type
+    Type,
 }
 
 pub static BUILT_IN_KEYWORDS: phf::Map<&'static str, Builtin> = phf_map! {
@@ -45,47 +45,120 @@ pub static BUILT_IN_KEYWORDS: phf::Map<&'static str, Builtin> = phf_map! {
     "f64" => Builtin::F64,
 
     "any" => Builtin::Any,
-    "type" => Builtin::Type    
+    "type" => Builtin::Type
 };
-
 
 pub enum Instruction {
     Nop,
 
-    Add { dest: Ref, l: Ref, r: Ref },
-    Sub { dest: Ref, l: Ref, r: Ref },
-    Div { dest: Ref, l: Ref, r: Ref },
-    Mul { dest: Ref, l: Ref, r: Ref },
+    Add {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
+    Sub {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
+    Div {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
+    Mul {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
 
-    CmpLt { dest: Ref, l: Ref, r: Ref },
-    CmpGt { dest: Ref, l: Ref, r: Ref },
-    CmpLe { dest: Ref, l: Ref, r: Ref },
-    CmpGe { dest: Ref, l: Ref, r: Ref },
-    CmpEq { dest: Ref, l: Ref, r: Ref },
-    CmpNe { dest: Ref, l: Ref, r: Ref },
+    CmpLt {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
+    CmpGt {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
+    CmpLe {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
+    CmpGe {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
+    CmpEq {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
+    CmpNe {
+        dest: Ref,
+        l: Ref,
+        r: Ref,
+    },
 
-    Negate { dest: Ref, value: Ref },
-    Not { dest: Ref, value: Ref },
+    Negate {
+        dest: Ref,
+        value: Ref,
+    },
+    Not {
+        dest: Ref,
+        value: Ref,
+    },
 
-    Cast { dest: Ref, value: Ref, ty: Ref },
-    TypeOf { dest: Ref, value: Ref },
+    Cast {
+        dest: Ref,
+        value: Ref,
+        ty: Ref,
+    },
+    TypeOf {
+        dest: Ref,
+        value: Ref,
+    },
 
     // LoadConstants { dest: Ref, index: ConstantIndex },
-    LoadBuiltin { dest: Ref, builtin: Builtin },
+    LoadBuiltin {
+        dest: Ref,
+        builtin: Builtin,
+    },
 
-    Load { dest: Ref, reg: Ref },
-    Store { reg: Ref, value: Ref },
+    Load {
+        dest: Ref,
+        reg: Ref,
+    },
+    Store {
+        reg: Ref,
+        value: Ref,
+    },
 
     // LoadDecl { dest: Ref, index: DeclIndex },
     // StoreDecl { index: DeclIndex, value: Ref },
+    Ref {
+        dest: Ref,
+        value: Ref,
+    },
+    Deref {
+        dest: Ref,
+        value: Ref,
+    },
 
-    Ref { dest: Ref, value: Ref },
-    Deref { dest: Ref, value: Ref },
+    TypedValue {
+        dest: Ref,
+        value: Ref,
+        ty: Ref,
+    },
 
-    TypedValue { dest: Ref, value: Ref, ty: Ref },
-
-    Call { dest: Ref, func: Ref, args: Vec<Ref> },
-
+    Call {
+        dest: Ref,
+        func: Ref,
+        args: Vec<Ref>,
+    },
     // TODO(Implement the rest of the instructions)
 }
 
@@ -102,8 +175,11 @@ pub enum Terminator {
     ImplicitReturn { value: Ref },
 }
 
-pub type Ref = usize;
-pub type Loc = usize;
+#[derive(Clone, Copy)]
+pub struct Ref(usize);
+
+#[derive(Clone, Copy)]
+pub struct Loc(usize);
 
 pub struct BasicBlock {
     instructions: Vec<Instruction>,
@@ -116,5 +192,14 @@ pub struct CFG {
     register_count: usize,
 }
 
-pub struct UIR {
+pub struct UIR {}
+
+impl UIR {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn pretty_print(&self) {
+        todo!()
+    }
 }

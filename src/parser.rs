@@ -39,30 +39,34 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    fn matches(self, expected: &TokenType) -> bool {
-        self.current().ty == *expected
+    fn matches(self, expected: TokenType) -> bool {
+        if self.eof() {
+            return false;
+        }
+
+        self.current().ty == expected
     }
 
-    fn matches_next(self, expected: &TokenType) -> bool {
+    fn matches_next(self, expected: TokenType) -> bool {
         let next = self.peek();
 
         match next {
             None => false,
-            Some(tok) => tok.ty == *expected,
+            Some(tok) => tok.ty == expected,
         }
     }
 
-    fn advance_if(&'a mut self, expected: TokenType) -> Option<Token<'a>> {
+    fn advance_if(&mut self, expected: TokenType) -> bool {
         match self.tokens.get(self.position) {
             Some(tok) => {
                 if tok.ty == expected {
                     self.position += 1;
-                    Some(tok.clone())
+                    true
                 } else {
-                    None
+                    false
                 }
             }
-            None => None,
+            None => false,
         }
     }
 }
@@ -81,32 +85,41 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn advance_alloc(&'a mut self, node: ast::Node<'a>) -> ast::Ref {
-        self.cursor.advance();
+    fn alloc(&mut self, node: ast::Node<'a>) -> ast::Ref {
         self.ast.alloc(node)
+    }
+
+    fn advance_alloc(&mut self, node: ast::Node<'a>) -> ast::Ref {
+        self.cursor.advance();
+        self.alloc(node)
     }
 
     fn parse_ident(&'a mut self) -> ast::Ref {
         let tok = self.cursor.current();
 
         match tok.ty {
-            TokenType::Ident => self.ast.alloc(ast::Node::Ident(tok)),
-            _ => self.ast.alloc(ast::Node::Error {
+            TokenType::Ident => self.alloc(ast::Node::Ident(tok)),
+            _ => self.alloc(ast::Node::Error {
                 msg: "Unable to parse identifier",
                 token: tok,
             }),
         }
     }
 
-    fn parse_if(&'a mut self) -> ast::Ref {
+    fn expression(&mut self, lhs: ast::Ref, min_precedence: i32) -> ast::Ref {
         todo!()
     }
 
-    fn parse_expr(&'a mut self) -> ast::Ref {
+    fn parse_expr(&mut self) -> ast::Ref {
+        let lhs = self.parse_value();
+        self.expression(lhs, 0)
+    }
+
+    fn parse_comptime(&mut self) -> ast::Ref {
         todo!()
     }
 
-    fn parse_value(&'a mut self) -> ast::Ref {
+    fn parse_value(&mut self) -> ast::Ref {
         let tok = self.cursor.current();
 
         let value = match tok.ty {
@@ -120,11 +133,7 @@ impl<'a> Parser<'a> {
 
             TokenType::If => self.parse_if(),
 
-            TokenType::Comptime => {
-                self.cursor.advance();
-                let expr = self.parse_expr();
-                self.ast.alloc(ast::Node::Comptime(expr))
-            }
+            TokenType::Comptime => self.parse_comptime(),
 
             _ => {
                 return self.advance_alloc(ast::Node::Error {
@@ -137,23 +146,88 @@ impl<'a> Parser<'a> {
         value
     }
 
-    fn parse_toplevel_stmt(&'a mut self) -> ast::Ref {
-        let list = vec![];
-        self.ast.alloc(ast::Node::TopLevelScope(list))
+    fn parse_stmt(&mut self) -> ast::Ref {
+        todo!()
     }
 
-    fn parse_toplevel(&'a mut self) -> ast::Ref {
-        let mut list: Vec<ast::Ref> = vec![];
+    fn parse_scope(&mut self) -> ast::Ref {
+        let token = self.cursor.current();
 
-        loop {
-            if self.cursor.eof() {
-                break;
-            }
-
-            list.push(self.parse_toplevel_stmt());
+        if !self.cursor.advance_if(TokenType::LBrace) {
+            return self.advance_alloc(ast::Node::Error {
+                msg: "Block needs opening brace",
+                token,
+            });
         }
 
-        self.ast.alloc(ast::Node::TopLevelScope(list))
+        let mut list = Vec::<ast::Ref>::new();
+
+        while !self.cursor.matches(TokenType::RBrace) {
+            let stmt = self.parse_stmt();
+
+            if self.cursor.advance_if(TokenType::Semicolon) {
+                list.push(stmt);
+            }
+            else {
+                list.push(self.alloc(ast::Node::ImplicitReturn(stmt)));
+                break;
+            }
+        }
+
+        if !self.cursor.advance_if(TokenType::RBrace) {
+            return self.alloc(ast::Node::Error {
+                msg: "Expect closing brace at end of statement",
+                token,
+            });
+        }
+
+
+        self.alloc(ast::Node::Scope(list))
+    }
+
+    fn parse_if(&mut self) -> ast::Ref {
+        let tok = self.cursor.current();
+
+        'outer: {
+            if !self.cursor.advance_if(TokenType::If) {
+                break 'outer;
+            }
+
+            let cond = self.parse_expr();
+            let t = self.parse_scope();
+
+            if !self.cursor.advance_if(TokenType::Else) {
+                break 'outer;
+            }
+
+            let f = self.parse_scope();
+
+            return self.alloc(ast::Node::If { cond, t, f });
+        }
+
+        return self.advance_alloc(ast::Node::Error {
+            msg: "Failed to parse if statement",
+            token: tok,
+        });
+    }
+
+    fn parse_toplevel_stmt(&mut self) -> Option<ast::Ref> {
+        if self.cursor.eof() {
+            return None;
+        }
+
+        let list = vec![];
+        Some(self.alloc(ast::Node::TopLevelScope(list)))
+    }
+
+    fn parse_toplevel(&mut self) -> ast::Ref {
+        let mut list: Vec<ast::Ref> = vec![];
+
+        while let Some(node) = self.parse_toplevel_stmt() {
+            list.push(node);
+        }
+
+        self.alloc(ast::Node::TopLevelScope(list))
     }
 
     pub fn run(mut self) -> AST<'a> {

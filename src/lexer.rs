@@ -174,7 +174,7 @@ impl<'a> Lexer<'a> {
                 }
 
                 c => panic!(
-                    "Not implemented for char '{}'",
+                    "Not implemented for character '{}'",
                     std::str::from_utf8(std::slice::from_ref(&c)).unwrap()
                 ),
             }

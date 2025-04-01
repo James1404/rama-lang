@@ -1,0 +1,4 @@
+type String = {
+     data: [u8],
+     len: usize,
+}
