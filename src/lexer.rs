@@ -100,14 +100,16 @@ impl<'a> Lexer<'a> {
                     self.advance();
 
                     match self.current() {
-                        b'/' => while !self.matches(b'\n') {
-                            self.advance();
-                        },
+                        b'/' => {
+                            while !self.matches(b'\n') {
+                                self.advance();
+                            }
+                        }
                         b'*' => todo!("Add multiline comments"),
                         b'=' => self.append_single(TokenType::DivEq),
                         _ => self.append(TokenType::Slash),
                     }
-                },
+                }
 
                 b'=' => self.append_single_or_next(b'=', TokenType::EqualEqual, TokenType::Equal),
                 b'!' => self.append_single_or_next(b'=', TokenType::NotEqual, TokenType::Not),
@@ -119,9 +121,10 @@ impl<'a> Lexer<'a> {
                         self.advance();
                     }
 
-                    self.advance();
-
+                    self.start += 1;
                     self.append(TokenType::String);
+
+                    self.advance();
                 }
 
                 b' ' | b'\t' => self.advance(),
@@ -153,7 +156,7 @@ impl<'a> Lexer<'a> {
                     loop {
                         match self.current() {
                             b'_' => {}
-                            c if c.is_ascii_alphabetic() => {}
+                            c if c.is_ascii_alphanumeric() => {}
                             _ => break,
                         }
 

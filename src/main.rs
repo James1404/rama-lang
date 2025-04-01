@@ -26,10 +26,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Test,
+    Test {
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
-fn compile<P>(path: P) -> io::Result<()>
+fn compile<P>(path: P, verbose: bool) -> io::Result<()>
 where
     P: AsRef<Path>,
 {
@@ -38,29 +41,39 @@ where
     let lexer = Lexer::new(&src);
     let tokens = lexer.run();
 
-    for tok in &tokens {
-        println!("{}: \"{}\"", Into::<&'static str>::into(&tok.ty), tok.text);
+    if verbose {
+        println!("<== Printing Tokens ==>");
+        for tok in &tokens {
+            println!("{}: \"{}\"", Into::<&'static str>::into(&tok.ty), tok.text);
+        }
+        println!()
     }
 
     let parser = Parser::new(&tokens);
     let ast = parser.run();
 
-    ast.pretty_print();
+    if verbose {
+        ast.pretty_print();
+    }
 
-    let uirgen = UIRGen::new(ast);
-    let uir = uirgen.run();
+    // let uirgen = UIRGen::new(ast);
+    // let uir = uirgen.run();
 
-    uir.pretty_print();
+    // if verbose {
+    //     uir.pretty_print();
+    // }
 
-    let sema = Sema::new(uir);
-    let tir = sema.run();
+    // let sema = Sema::new(uir);
+    // let tir = sema.run();
 
-    tir.pretty_print();
+    // if verbose {
+    //     tir.pretty_print();
+    // }
 
     Ok(())
 }
 
-fn tests() -> io::Result<()> {
+fn tests(verbose: bool) -> io::Result<()> {
     let paths = fs::read_dir("./test")?;
     let paths = paths.into_iter().flatten().collect::<Vec<fs::DirEntry>>();
 
@@ -69,7 +82,7 @@ fn tests() -> io::Result<()> {
 
         if path.is_file() {
             println!("<=== Running test {} \"{}\" ===>", idx, path.display());
-            compile(path)?;
+            compile(path, verbose)?;
         }
     }
 
@@ -82,8 +95,8 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Test) => {
-            tests()?;
+        Some(Commands::Test { verbose }) => {
+            tests(*verbose)?;
         }
         None => {}
     }

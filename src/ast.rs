@@ -57,6 +57,7 @@ pub enum Node<'a> {
     },
 
     FnDecl {
+        ident: Ref,
         params: Ref,
         ret: Ref,
         block: Ref,
@@ -92,6 +93,7 @@ pub enum Node<'a> {
     },
 
     Type {
+        ident: Ref,
         args: Vec<Ref>,
         body: Ref,
     },
@@ -108,7 +110,7 @@ pub enum Node<'a> {
     },
     EnumVariant {
         ident: Ref,
-        ty: Ref,
+        ty: Option<Ref>,
     },
     FnType {
         params: Ref,
@@ -161,9 +163,9 @@ impl<'a> AST<'a> {
                 println!($($arg)*);
             }}
         }
-        
 
-        out!(indentation,
+        out!(
+            indentation,
             "{}:",
             Into::<&'static str>::into(self.get(handle))
         );
@@ -172,23 +174,29 @@ impl<'a> AST<'a> {
             Node::None => {}
 
             Node::Error { msg, token } => {
-                out!(indentation + 1,"\"{}\" at [{};{}]", msg, token.line, token.location)
+                out!(
+                    indentation + 1,
+                    "\"{}\" at [{};{}]",
+                    msg,
+                    token.line,
+                    token.location
+                )
             }
 
             Node::Binary { lhs, rhs, op } => {
-                out!(indentation + 1,"{}", Into::<&'static str>::into(op.ty));
+                out!(indentation + 1, "{}", Into::<&'static str>::into(op.ty));
                 self.print(lhs, indentation + 1);
                 self.print(rhs, indentation + 1);
             }
             Node::Unary { value, op } => {
-                out!(indentation + 1,"{}", Into::<&'static str>::into(op.ty));
+                out!(indentation + 1, "{}", Into::<&'static str>::into(op.ty));
                 self.print(value, indentation + 1);
             }
-            Node::Float(val) => out!(indentation + 1,"{}", val),
-            Node::Int(val) => out!(indentation + 1,"{}", val),
-            Node::String(val) => out!(indentation + 1,"{}", val),
-            Node::Bool(val) => out!(indentation + 1,"{}", val),
-            Node::Ident(token) => out!(indentation + 1,"{}", token.text),
+            Node::Float(val) => out!(indentation + 1, "{}", val),
+            Node::Int(val) => out!(indentation + 1, "{}", val),
+            Node::String(val) => out!(indentation + 1, "{}", val),
+            Node::Bool(val) => out!(indentation + 1, "{}", val),
+            Node::Ident(token) => out!(indentation + 1, "{}", token.text),
             Node::TopLevelScope(items) => {
                 for node in items {
                     self.print(node, indentation + 1);
@@ -226,7 +234,13 @@ impl<'a> AST<'a> {
                 self.print(ident, indentation + 1);
                 self.print(ty, indentation + 1);
             }
-            Node::FnDecl { params, ret, block } => {
+            Node::FnDecl {
+                ident,
+                params,
+                ret,
+                block,
+            } => {
+                self.print(ident, indentation + 1);
                 self.print(params, indentation + 1);
                 self.print(ret, indentation + 1);
                 self.print(block, indentation + 1);
@@ -263,7 +277,8 @@ impl<'a> AST<'a> {
                 self.print(value, indentation + 1);
             }
 
-            Node::Type { args, body } => {
+            Node::Type { ident, args, body } => {
+                self.print(ident, indentation + 1);
                 for node in args {
                     self.print(node, indentation + 1);
                 }
@@ -286,7 +301,9 @@ impl<'a> AST<'a> {
             }
             Node::EnumVariant { ident, ty } => {
                 self.print(ident, indentation + 1);
-                self.print(ty, indentation + 1);
+                if let Some(ty) = ty {
+                    self.print(ty, indentation + 1);
+                }
             }
             Node::FnType {
                 params,
@@ -317,7 +334,9 @@ impl<'a> AST<'a> {
 
     pub fn pretty_print(&self) {
         if let Some(root) = self.root {
+            println!("<== Printing AST ==>");
             self.print(root, 0);
+            println!();
         } else {
             error!("Error: AST has not been generated");
         }

@@ -1,10 +1,12 @@
+type Num = i32;
+
 type Option(T) = enum {
-     Some: T,
-     None,
-}
+     Some: T;
+     None;
+};
 
 type Player = struct {
-     health: i32,
-     alive: bool,
-     name: string,
-}
+     health: i32;
+     alive: bool;
+     name: string;
+};
