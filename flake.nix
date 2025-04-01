@@ -19,10 +19,13 @@
           devShells.default = (pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
             packages = with pkgs; [
               pkg-config
+              lldb
 
               rust-bin.stable.latest.default
               rust-analyzer
             ];
+
+            RUST_BACKTRACE = "1";
           });
         }
       );

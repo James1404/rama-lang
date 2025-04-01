@@ -3,10 +3,10 @@ use strum_macros::IntoStaticStr;
 
 use crate::tokens::Token;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Ref(usize);
 
-#[derive(Clone, IntoStaticStr)]
+#[derive(Debug, Clone, IntoStaticStr)]
 pub enum Node<'a> {
     None,
 
@@ -155,9 +155,16 @@ impl<'a> AST<'a> {
     }
 
     fn print(&self, handle: Ref, indentation: usize) {
-        print!(
-            "{}{}:",
-            "\t".repeat(indentation),
+        macro_rules! out {
+            ($indentation:expr, $($arg:tt)*) => {{
+                print!("{}", "\t".repeat($indentation));
+                println!($($arg)*);
+            }}
+        }
+        
+
+        out!(indentation,
+            "{}:",
             Into::<&'static str>::into(self.get(handle))
         );
 
@@ -165,23 +172,23 @@ impl<'a> AST<'a> {
             Node::None => {}
 
             Node::Error { msg, token } => {
-                println!("\"{}\" at [{};{}]", msg, token.line, token.location)
+                out!(indentation + 1,"\"{}\" at [{};{}]", msg, token.line, token.location)
             }
 
             Node::Binary { lhs, rhs, op } => {
-                println!("{}", Into::<&'static str>::into(op.ty));
+                out!(indentation + 1,"{}", Into::<&'static str>::into(op.ty));
                 self.print(lhs, indentation + 1);
                 self.print(rhs, indentation + 1);
             }
             Node::Unary { value, op } => {
-                println!("{}", Into::<&'static str>::into(op.ty));
+                out!(indentation + 1,"{}", Into::<&'static str>::into(op.ty));
                 self.print(value, indentation + 1);
             }
-            Node::Float(val) => println!("{}", val),
-            Node::Int(val) => println!("{}", val),
-            Node::String(val) => println!("{}", val),
-            Node::Bool(val) => println!("{}", val),
-            Node::Ident(token) => println!("{}", token.text),
+            Node::Float(val) => out!(indentation + 1,"{}", val),
+            Node::Int(val) => out!(indentation + 1,"{}", val),
+            Node::String(val) => out!(indentation + 1,"{}", val),
+            Node::Bool(val) => out!(indentation + 1,"{}", val),
+            Node::Ident(token) => out!(indentation + 1,"{}", token.text),
             Node::TopLevelScope(items) => {
                 for node in items {
                     self.print(node, indentation + 1);
@@ -232,7 +239,7 @@ impl<'a> AST<'a> {
                 }
             }
             Node::Import(path) => {
-                print!("{}", path);
+                out!(indentation + 1, "{}", path);
             }
             Node::Return(value) => self.print(value, indentation + 1),
             Node::ImplicitReturn(value) => self.print(value, indentation + 1),
@@ -306,8 +313,6 @@ impl<'a> AST<'a> {
                 self.print(ty, indentation + 1);
             }
         }
-
-        println!();
     }
 
     pub fn pretty_print(&self) {

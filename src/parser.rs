@@ -1,3 +1,5 @@
+use log::error;
+
 use crate::{
     ast::{self, AST},
     tokens::{Token, TokenType, precedence},
@@ -57,6 +59,10 @@ impl<'a> Cursor<'a> {
     }
 
     fn advance_if(&mut self, expected: TokenType) -> bool {
+        if self.eof() {
+            return false;
+        }
+
         match self.tokens.get(self.position) {
             Some(tok) => {
                 if tok.ty == expected {
@@ -86,6 +92,12 @@ impl<'a> Parser<'a> {
     }
 
     fn alloc(&mut self, node: ast::Node<'a>) -> ast::Ref {
+        match node {
+            ast::Node::Error { msg, token } => {
+                error!("[{}; {}] {}", token.line, token.location, msg)
+            }
+            _ => {}
+        }
         self.ast.alloc(node)
     }
 
@@ -98,8 +110,8 @@ impl<'a> Parser<'a> {
         let token = self.cursor.current();
 
         match token.ty {
-            TokenType::Ident => self.alloc(ast::Node::Ident(token)),
-            _ => self.alloc(ast::Node::Error {
+            TokenType::Ident => self.advance_alloc(ast::Node::Ident(token)),
+            _ => self.advance_alloc(ast::Node::Error {
                 msg: "Unable to parse identifier",
                 token,
             }),
@@ -162,6 +174,18 @@ impl<'a> Parser<'a> {
             TokenType::If => self.parse_if(),
 
             TokenType::Comptime => self.parse_comptime(),
+
+            TokenType::LParen => {
+                self.cursor.advance();
+                let expr = self.parse_expr();
+
+                if self.cursor.advance_if(TokenType::RParen) {
+                    expr
+                }
+                else {
+                    self.alloc(ast::Node::Error { msg: "Parenthesis requires closing brace", token })
+                }
+            }
 
             _ => {
                 return self.advance_alloc(ast::Node::Error {
@@ -238,8 +262,13 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_type(&mut self) -> ast::Ref {
-        todo!()
+    fn parse_type_stmt(&mut self) -> ast::Ref {
+        let token = self.cursor.current();
+
+        self.alloc(ast::Node::Error {
+            msg: "failed to parse type statement",
+            token,
+        })
     }
 
     fn parse_interface(&mut self) -> ast::Ref {
@@ -263,8 +292,9 @@ impl<'a> Parser<'a> {
                 self.alloc(ast::Node::Defer(expr))
             }
             TokenType::Import => self.parse_import(),
-            TokenType::Type => self.parse_type(),
-            TokenType::Interface => self.parse_type(),
+            TokenType::Type => self.parse_type_stmt(),
+            TokenType::Interface => self.parse_type_stmt(),
+            TokenType::Fn => self.parse_fn_stmt(),
             _ if self.cursor.matches(TokenType::Ident)
                 && self.cursor.matches_next(TokenType::Equal) =>
             {
@@ -386,7 +416,7 @@ impl<'a> Parser<'a> {
         if self.cursor.advance_if(TokenType::Import) {
             let current = self.cursor.current();
             return self.advance_alloc(match current.ty {
-                TokenType::String => ast::Node::String(current.text),
+                TokenType::String => ast::Node::Import(current.text),
                 _ => ast::Node::Error {
                     msg: "Import expects a path",
                     token,
@@ -433,7 +463,7 @@ impl<'a> Parser<'a> {
             TokenType::Const => self.parse_const(),
             TokenType::Var => self.parse_var(),
             TokenType::Comptime => self.parse_comptime(),
-            TokenType::Type => self.parse_type(),
+            TokenType::Type => self.parse_type_stmt(),
             TokenType::Interface => self.parse_interface(),
             TokenType::Fn => self.parse_fn_stmt(),
             _ => self.alloc(ast::Node::Error {
@@ -447,7 +477,7 @@ impl<'a> Parser<'a> {
         let mut list: Vec<ast::Ref> = vec![];
 
         while !self.cursor.eof() {
-            list.push(self.parse_toplevel_stmt());
+            list.push(self.parse_stmt());
         }
 
         self.alloc(ast::Node::TopLevelScope(list))
