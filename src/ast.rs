@@ -9,7 +9,7 @@ pub struct Ref(usize);
 #[derive(Clone, IntoStaticStr)]
 pub enum Node<'a> {
     None,
-    
+
     Error {
         msg: &'a str,
         token: Token<'a>,
@@ -66,6 +66,8 @@ pub enum Node<'a> {
         args: Vec<Ref>,
     },
 
+    Import(&'a str),
+
     Return(Ref),
     ImplicitReturn(Ref),
 
@@ -89,26 +91,37 @@ pub enum Node<'a> {
         value: Ref,
     },
 
-    Comptime(Ref),
-    Extern(Ref),
+    Type {
+        args: Vec<Ref>,
+        body: Ref,
+    },
+    StructType {
+        fields: Vec<Ref>,
+    },
+    EnumType {
+        variants: Vec<Ref>,
+    },
 
+    StructField {
+        ident: Ref,
+        ty: Ref,
+    },
+    EnumVariant {
+        ident: Ref,
+        ty: Ref,
+    },
     FnType {
         params: Ref,
         ret: Ref,
+        external_linkage: bool,
     },
-
-    Field {
-        ident: Ref,
-        ty: Option<Ref>,
-        default: Option<Ref>,
-    },
-
-    Struct {
+    DistinctType(Ref),
+    PtrType(Ref),
+    Interface {
         fields: Vec<Ref>,
     },
-    Distinct(Ref),
-    PtrType(Ref),
 
+    Comptime(Ref),
     Defer(Ref),
 
     Cast {
@@ -135,11 +148,6 @@ impl<'a> AST<'a> {
         self.data[handle.0].clone()
     }
 
-    pub fn get_mut(&'a mut self, handle: Ref) -> &'a mut Node<'a> {
-        &mut self.data[handle.0]
-    }
-
-
     pub fn alloc(&mut self, node: Node<'a>) -> Ref {
         let index = self.data.len();
         self.data.push(node);
@@ -154,7 +162,7 @@ impl<'a> AST<'a> {
         );
 
         match self.get(handle) {
-            Node::None => {},
+            Node::None => {}
 
             Node::Error { msg, token } => {
                 println!("\"{}\" at [{};{}]", msg, token.line, token.location)
@@ -223,6 +231,9 @@ impl<'a> AST<'a> {
                     self.print(node, indentation + 1);
                 }
             }
+            Node::Import(path) => {
+                print!("{}", path);
+            }
             Node::Return(value) => self.print(value, indentation + 1),
             Node::ImplicitReturn(value) => self.print(value, indentation + 1),
             Node::Dot { lhs, ident } => {
@@ -244,31 +255,52 @@ impl<'a> AST<'a> {
                 self.print(pattern, indentation + 1);
                 self.print(value, indentation + 1);
             }
-            Node::Comptime(value) => self.print(value, indentation + 1),
-            Node::Extern(value) => self.print(value, indentation + 1),
-            Node::FnType { params, ret } => {
-                self.print(params, indentation + 1);
-                self.print(ret, indentation + 1);
-            }
-            Node::Field { ident, ty, default } => {
-                self.print(ident, indentation + 1);
 
-                if let Some(ty) = ty {
-                    self.print(ty, indentation + 1);
+            Node::Type { args, body } => {
+                for node in args {
+                    self.print(node, indentation + 1);
                 }
-
-                if let Some(default) = default {
-                    self.print(default, indentation + 1);
-                }
+                self.print(body, indentation + 1);
             }
-            Node::Struct { fields } => {
+            Node::StructType { fields } => {
                 for node in fields {
                     self.print(node, indentation + 1);
                 }
             }
-            Node::Distinct(value) => self.print(value, indentation + 1),
+            Node::EnumType { variants } => {
+                for node in variants {
+                    self.print(node, indentation + 1);
+                }
+            }
+
+            Node::StructField { ident, ty } => {
+                self.print(ident, indentation + 1);
+                self.print(ty, indentation + 1);
+            }
+            Node::EnumVariant { ident, ty } => {
+                self.print(ident, indentation + 1);
+                self.print(ty, indentation + 1);
+            }
+            Node::FnType {
+                params,
+                ret,
+                external_linkage,
+            } => {
+                self.print(params, indentation + 1);
+                self.print(ret, indentation + 1);
+                print!("Extern: {}", external_linkage);
+            }
+            Node::DistinctType(value) => self.print(value, indentation + 1),
             Node::PtrType(value) => self.print(value, indentation + 1),
+            Node::Interface { fields } => {
+                for node in fields {
+                    self.print(node, indentation + 1);
+                }
+            }
+
+            Node::Comptime(value) => self.print(value, indentation + 1),
             Node::Defer(value) => self.print(value, indentation + 1),
+
             Node::Cast { value, ty } => {
                 self.print(value, indentation + 1);
                 self.print(ty, indentation + 1);

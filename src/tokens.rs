@@ -1,7 +1,7 @@
 use phf::phf_map;
 use strum_macros::IntoStaticStr;
 
-#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 pub enum TokenType {
     // Values
     String,
@@ -75,14 +75,17 @@ pub enum TokenType {
     Struct,
     Enum,
     Distinct,
+    Interface,
 
     Defer,
     Comptime,
 
+    Import,
+
     As,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Token<'a> {
     pub text: &'a str,
     pub line: usize,
@@ -96,7 +99,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
 
     "if" => TokenType::If,
     "else" => TokenType::Else,
-    
+
     "for" => TokenType::For,
     "while" => TokenType::While,
     "loop" => TokenType::Loop,
@@ -111,14 +114,35 @@ pub static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
 
     "fn" => TokenType::Fn,
     "extern" => TokenType::Extern,
-    
+
     "type" => TokenType::Type,
     "struct" => TokenType::Struct,
     "enum" => TokenType::Enum,
     "distinct" => TokenType::Distinct,
+    "interface" => TokenType::Interface,
 
     "defer" => TokenType::Defer,
     "comptime" => TokenType::Comptime,
 
+    "import" => TokenType::Import,
+
     "as" => TokenType::As,
 };
+
+pub fn precedence(token: Token<'_>) -> i32 {
+    match token.ty {
+        TokenType::Plus => 1,
+        TokenType::Minus => 2,
+        TokenType::Asterix => 3,
+        TokenType::Slash => 4,
+
+        TokenType::Less
+        | TokenType::LessEq
+        | TokenType::Greater
+        | TokenType::GreaterEq
+        | TokenType::EqualEqual
+        | TokenType::NotEqual => 4,
+
+        _ => -1,
+    }
+}

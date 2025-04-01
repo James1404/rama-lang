@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use phf::phf_map;
 
 pub enum Builtin {

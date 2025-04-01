@@ -75,16 +75,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn peek(&self) -> Option<u8> {
-        let index = self.position + 1;
-
-        if index > self.src.len() {
-            None
-        } else {
-            Some(self.src[index])
-        }
-    }
-
     pub fn run(mut self) -> Vec<Token<'a>> {
         while self.position < self.src.len() {
             self.start = self.position;

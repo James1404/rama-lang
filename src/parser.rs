@@ -1,6 +1,6 @@
 use crate::{
     ast::{self, AST},
-    tokens::{Token, TokenType},
+    tokens::{Token, TokenType, precedence},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -94,20 +94,46 @@ impl<'a> Parser<'a> {
         self.alloc(node)
     }
 
-    fn parse_ident(&'a mut self) -> ast::Ref {
-        let tok = self.cursor.current();
+    fn parse_ident(&mut self) -> ast::Ref {
+        let token = self.cursor.current();
 
-        match tok.ty {
-            TokenType::Ident => self.alloc(ast::Node::Ident(tok)),
+        match token.ty {
+            TokenType::Ident => self.alloc(ast::Node::Ident(token)),
             _ => self.alloc(ast::Node::Error {
                 msg: "Unable to parse identifier",
-                token: tok,
+                token,
             }),
         }
     }
 
     fn expression(&mut self, lhs: ast::Ref, min_precedence: i32) -> ast::Ref {
-        todo!()
+        let mut last = lhs;
+        let mut current = self.cursor.current();
+
+        while precedence(current) >= min_precedence {
+            let op = self.cursor.current();
+            self.cursor.advance();
+
+            let mut rhs = self.parse_value();
+
+            current = self.cursor.current();
+
+            while precedence(current) > precedence(op) {
+                rhs = self.expression(
+                    rhs,
+                    precedence(op)
+                        + if precedence(current) > precedence(op) {
+                            1
+                        } else {
+                            0
+                        },
+                );
+            }
+
+            last = self.alloc(ast::Node::Binary { lhs: last, rhs, op });
+        }
+
+        last
     }
 
     fn parse_expr(&mut self) -> ast::Ref {
@@ -116,17 +142,19 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_comptime(&mut self) -> ast::Ref {
-        todo!()
+        self.cursor.advance();
+        let expr = self.parse_expr();
+        self.alloc(ast::Node::Comptime(expr))
     }
 
     fn parse_value(&mut self) -> ast::Ref {
-        let tok = self.cursor.current();
+        let token = self.cursor.current();
 
-        let value = match tok.ty {
-            TokenType::String => self.advance_alloc(ast::Node::String(tok.text)),
-            TokenType::Float => self.advance_alloc(ast::Node::Float(tok.text)),
-            TokenType::Int => self.advance_alloc(ast::Node::Int(tok.text)),
-            TokenType::Ident => self.advance_alloc(ast::Node::Ident(tok)),
+        let value = match token.ty {
+            TokenType::String => self.advance_alloc(ast::Node::String(token.text)),
+            TokenType::Float => self.advance_alloc(ast::Node::Float(token.text)),
+            TokenType::Int => self.advance_alloc(ast::Node::Int(token.text)),
+            TokenType::Ident => self.advance_alloc(ast::Node::Ident(token)),
 
             TokenType::True => self.advance_alloc(ast::Node::Bool(true)),
             TokenType::False => self.advance_alloc(ast::Node::Bool(false)),
@@ -138,7 +166,7 @@ impl<'a> Parser<'a> {
             _ => {
                 return self.advance_alloc(ast::Node::Error {
                     msg: "Unable to parse value",
-                    token: tok,
+                    token,
                 });
             }
         };
@@ -146,8 +174,117 @@ impl<'a> Parser<'a> {
         value
     }
 
-    fn parse_stmt(&mut self) -> ast::Ref {
+    fn parse_const(&mut self) -> ast::Ref {
+        let token = self.cursor.current();
+
+        if self.cursor.advance_if(TokenType::Const) {
+            let ident = self.parse_ident();
+
+            let ty = if self.cursor.advance_if(TokenType::Colon) {
+                Some(self.parse_expr())
+            } else {
+                None
+            };
+
+            if self.cursor.advance_if(TokenType::Equal) {
+                let value = self.parse_expr();
+
+                return if self.cursor.advance_if(TokenType::Semicolon) {
+                    self.alloc(ast::Node::ConstDecl { ident, ty, value })
+                } else {
+                    self.alloc(ast::Node::Error {
+                        msg: "Expected semicolon after var statement",
+                        token,
+                    })
+                };
+            }
+        }
+
+        self.alloc(ast::Node::Error {
+            msg: "Failed to parse const statement",
+            token,
+        })
+    }
+
+    fn parse_var(&mut self) -> ast::Ref {
+        let token = self.cursor.current();
+
+        if self.cursor.advance_if(TokenType::Var) {
+            let ident = self.parse_ident();
+
+            let ty = if self.cursor.advance_if(TokenType::Colon) {
+                Some(self.parse_expr())
+            } else {
+                None
+            };
+
+            if self.cursor.advance_if(TokenType::Equal) {
+                let value = self.parse_expr();
+
+                return if self.cursor.advance_if(TokenType::Semicolon) {
+                    self.alloc(ast::Node::VarDecl { ident, ty, value })
+                } else {
+                    self.alloc(ast::Node::Error {
+                        msg: "Expected semicolon after var statement",
+                        token,
+                    })
+                };
+            }
+        }
+
+        self.alloc(ast::Node::Error {
+            msg: "Failed to parse var statement",
+            token,
+        })
+    }
+
+    fn parse_type(&mut self) -> ast::Ref {
         todo!()
+    }
+
+    fn parse_interface(&mut self) -> ast::Ref {
+        todo!()
+    }
+
+    fn parse_stmt(&mut self) -> ast::Ref {
+        let token = self.cursor.current();
+
+        match token.ty {
+            TokenType::Const => self.parse_const(),
+            TokenType::Var => self.parse_var(),
+            TokenType::Return => {
+                self.cursor.advance();
+                let expr = self.parse_expr();
+                self.alloc(ast::Node::Return(expr))
+            }
+            TokenType::Defer => {
+                self.cursor.advance();
+                let expr = self.parse_expr();
+                self.alloc(ast::Node::Defer(expr))
+            }
+            TokenType::Import => self.parse_import(),
+            TokenType::Type => self.parse_type(),
+            TokenType::Interface => self.parse_type(),
+            _ if self.cursor.matches(TokenType::Ident)
+                && self.cursor.matches_next(TokenType::Equal) =>
+            {
+                let ident = self.parse_ident();
+                self.cursor.advance();
+
+                let value = self.parse_expr();
+
+                self.alloc(ast::Node::Assignment { ident, value })
+            }
+            _ => {
+                let expr = self.parse_expr();
+
+                if self.cursor.advance_if(TokenType::Semicolon) {
+                    expr
+                } else {
+                    self.alloc(ast::Node::ImplicitReturn(expr))
+                }
+            }
+        }
     }
 
     fn parse_scope(&mut self) -> ast::Ref {
@@ -164,14 +301,7 @@ impl<'a> Parser<'a> {
 
         while !self.cursor.matches(TokenType::RBrace) {
             let stmt = self.parse_stmt();
-
-            if self.cursor.advance_if(TokenType::Semicolon) {
-                list.push(stmt);
-            }
-            else {
-                list.push(self.alloc(ast::Node::ImplicitReturn(stmt)));
-                break;
-            }
+            list.push(stmt);
         }
 
         if !self.cursor.advance_if(TokenType::RBrace) {
@@ -181,12 +311,97 @@ impl<'a> Parser<'a> {
             });
         }
 
-
         self.alloc(ast::Node::Scope(list))
     }
 
+    fn parse_fn_stmt(&mut self) -> ast::Ref {
+        let token = self.cursor.current();
+
+        if self.cursor.advance_if(TokenType::Fn) {
+            let ident = self.parse_ident();
+
+            if !self.cursor.advance_if(TokenType::LParen) {
+                return self.alloc(ast::Node::Error {
+                    msg: "Function definition requires arguments list",
+                    token,
+                });
+            }
+
+            let mut params = Vec::<ast::Ref>::new();
+
+            loop {
+                if self.cursor.matches(TokenType::RParen) {
+                    break;
+                }
+
+                let ident = self.parse_ident();
+
+                if self.cursor.advance_if(TokenType::Colon) {
+                    return self.alloc(ast::Node::Error {
+                        msg: "Argument needs a type with ':'",
+                        token,
+                    });
+                }
+
+                let ty = self.parse_expr();
+
+                params.push(self.alloc(ast::Node::Paramater { ident, ty }));
+
+                if !self.cursor.advance_if(TokenType::Colon) {
+                    break;
+                }
+            }
+
+            if !self.cursor.advance_if(TokenType::RParen) {
+                return self.alloc(ast::Node::Error {
+                    msg: "Function paramater list requires closing brace",
+                    token,
+                });
+            }
+
+            let ret = self.parse_expr();
+
+            if !self.cursor.matches(TokenType::LBrace) {
+                return self.alloc(ast::Node::Error {
+                    msg: "Function decleration requires a code block",
+                    token,
+                });
+            }
+
+            let block = self.parse_scope();
+
+            let params = self.alloc(ast::Node::ParameterList(params));
+            return self.alloc(ast::Node::FnDecl { params, ret, block });
+        }
+
+        self.alloc(ast::Node::Error {
+            msg: "Failed to parse fn statement",
+            token,
+        })
+    }
+
+    fn parse_import(&mut self) -> ast::Ref {
+        let token = self.cursor.current();
+
+        if self.cursor.advance_if(TokenType::Import) {
+            let current = self.cursor.current();
+            return self.advance_alloc(match current.ty {
+                TokenType::String => ast::Node::String(current.text),
+                _ => ast::Node::Error {
+                    msg: "Import expects a path",
+                    token,
+                },
+            });
+        }
+
+        self.alloc(ast::Node::Error {
+            msg: "Unable to parse import statement",
+            token,
+        })
+    }
+
     fn parse_if(&mut self) -> ast::Ref {
-        let tok = self.cursor.current();
+        let token = self.cursor.current();
 
         'outer: {
             if !self.cursor.advance_if(TokenType::If) {
@@ -207,24 +422,32 @@ impl<'a> Parser<'a> {
 
         return self.advance_alloc(ast::Node::Error {
             msg: "Failed to parse if statement",
-            token: tok,
+            token,
         });
     }
 
-    fn parse_toplevel_stmt(&mut self) -> Option<ast::Ref> {
-        if self.cursor.eof() {
-            return None;
-        }
+    fn parse_toplevel_stmt(&mut self) -> ast::Ref {
+        let token = self.cursor.current();
 
-        let list = vec![];
-        Some(self.alloc(ast::Node::TopLevelScope(list)))
+        match token.ty {
+            TokenType::Const => self.parse_const(),
+            TokenType::Var => self.parse_var(),
+            TokenType::Comptime => self.parse_comptime(),
+            TokenType::Type => self.parse_type(),
+            TokenType::Interface => self.parse_interface(),
+            TokenType::Fn => self.parse_fn_stmt(),
+            _ => self.alloc(ast::Node::Error {
+                msg: "Invalid toplevel statement",
+                token,
+            }),
+        }
     }
 
     fn parse_toplevel(&mut self) -> ast::Ref {
         let mut list: Vec<ast::Ref> = vec![];
 
-        while let Some(node) = self.parse_toplevel_stmt() {
-            list.push(node);
+        while !self.cursor.eof() {
+            list.push(self.parse_toplevel_stmt());
         }
 
         self.alloc(ast::Node::TopLevelScope(list))

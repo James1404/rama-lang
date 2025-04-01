@@ -1,8 +1,8 @@
-pub enum Instruction {
-}
+#![allow(dead_code)]
 
-pub enum Terminator {
-}
+pub enum Instruction {}
+
+pub enum Terminator {}
 
 type Loc = usize;
 type Ref = usize;
@@ -17,8 +17,7 @@ pub struct CFG {
     register_count: usize,
 }
 
-pub struct TIR {
-}
+pub struct TIR {}
 
 impl TIR {
     pub fn new() -> Self {

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::{tir::TIR, uir::UIR};
 
 pub struct Sema {

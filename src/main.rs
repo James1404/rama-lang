@@ -62,9 +62,10 @@ where
 
 fn tests() -> io::Result<()> {
     let paths = fs::read_dir("./test")?;
+    let paths = paths.into_iter().flatten().collect::<Vec<fs::DirEntry>>();
 
-    for (idx, path) in paths.enumerate() {
-        let path = path?.path();
+    for (idx, path) in paths.into_iter().enumerate() {
+        let path = path.path();
 
         if path.is_file() {
             println!("<=== Running test {} \"{}\" ===>", idx, path.display());
