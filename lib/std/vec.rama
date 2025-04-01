@@ -1,0 +1,4 @@
+type Vec(T) = struct {
+     ptr: *T,
+     len: usize,
+}
