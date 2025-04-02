@@ -6,9 +6,24 @@ The goal of this langauge for it to be suitable for system's programming, simila
 
 Rama will be compiled to machine code via LLVM, meaning you'll have a fast binary to use.
 
+- [ ] Language Design
+  - [x] Type system
+    - [x] Struct design
+    - [x] Enum design
+    - [x] Interface design
+  - [ ] Control flow structures
+    - [ ] If statements
+    - [ ] For loop
+      - [ ] Loop over common containers
+      - [ ] Loop over ranges
+    - [ ] While loop
+    - [ ] Plain loops
 - [x] Complete the lexer.
-- [ ] Complete the parser.
-- [ ] Add an untyped IR (UIR) for compile time execution and for type checking / inference.
+- [x] Complete the parser.
+- [ ] UIR IR
+  - [ ] Complete UIR Instruction set
+  - [ ] Generate from AST
+  - [ ] Execute semantic analysis over the UIR
 - [ ] Compile UIR to a lower level typed IR (TIR), with fully defined types.
 - [ ] Compile TIR down to machine code via LLVM.
 - [ ] Implement a borrow checker to guarantee memory safety.
