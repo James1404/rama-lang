@@ -229,7 +229,7 @@ impl<'a> Parser<'a> {
 
                 let ty = if self.cursor.advance_if(TokenType::Colon) {
                     Some(self.parse_type_expr())
-                }else {
+                } else {
                     None
                 };
 
@@ -312,15 +312,49 @@ impl<'a> Parser<'a> {
     fn parse_type_expr(&mut self) -> ast::Ref {
         let token = self.cursor.current();
 
-        match token.ty {
+        let value = match token.ty {
             TokenType::Struct => self.parse_struct_type(),
             TokenType::Enum => self.parse_enum_type(),
             TokenType::Ident => self.parse_ident(),
-            _ => self.advance_alloc(ast::Node::Error {
-                msg: "Invalid type",
-                token,
-            }),
+            _ => {
+                return self.advance_alloc(ast::Node::Error {
+                    msg: "Invalid type",
+                    token,
+                });
+            }
+        };
+
+        if self.cursor.advance_if(TokenType::LParen) {
+            let mut args = Vec::<ast::Ref>::new();
+
+            loop {
+                if self.cursor.matches(TokenType::RParen) {
+                    break;
+                }
+
+                if self.cursor.eof() {
+                    return self.alloc(ast::Node::Error { msg: "", token });
+                }
+
+                let arg = self.parse_type_expr();
+                args.push(arg);
+
+                if !self.cursor.advance_if(TokenType::Comma) {
+                    break;
+                }
+            }
+
+            if !self.cursor.advance_if(TokenType::RParen) {
+                return self.alloc(ast::Node::Error {
+                    msg: "Type constructor requires a closing parenthesis",
+                    token,
+                });
+            }
+
+            return self.alloc(ast::Node::TypeConstructor { ty: value, args });
         }
+
+        value
     }
 
     fn parse_const(&mut self) -> ast::Ref {
@@ -446,7 +480,61 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_interface(&mut self) -> ast::Ref {
-        todo!()
+        let token = self.cursor.current();
+
+        'outer: {
+            if !self.cursor.advance_if(TokenType::Interface) {
+                break 'outer;
+            }
+
+            let ident = self.parse_ident();
+
+            if !self.cursor.advance_if(TokenType::LBrace) {
+                return self.alloc(ast::Node::Error {
+                    msg: "Interface requires body",
+                    token,
+                });
+            }
+
+            let mut fields = Vec::<ast::Ref>::new();
+
+            while !self.cursor.advance_if(TokenType::RBrace) {
+                if self.cursor.eof() {
+                    return self.alloc(ast::Node::Error {
+                        msg: "Interface body requires closing brace",
+                        token,
+                    });
+                }
+
+                let ident = self.parse_ident();
+
+                if !self.cursor.advance_if(TokenType::Colon) {
+                    return self.advance_alloc(ast::Node::Error {
+                        msg: "Struct field requires a type",
+                        token,
+                    });
+                }
+
+                let ty = self.parse_type_expr();
+
+                let field = self.alloc(ast::Node::StructField { ident, ty });
+                fields.push(field);
+
+                if !self.cursor.advance_if(TokenType::Semicolon) {
+                    return self.advance_alloc(ast::Node::Error {
+                        msg: "Struct field must end with a semicolon",
+                        token,
+                    });
+                }
+            }
+
+            return self.alloc(ast::Node::Interface { fields });
+        }
+
+        self.advance_alloc(ast::Node::Error {
+            msg: "failed to parse interface",
+            token,
+        })
     }
 
     fn parse_stmt(&mut self) -> ast::Ref {
@@ -467,7 +555,7 @@ impl<'a> Parser<'a> {
             }
             TokenType::Import => self.parse_import(),
             TokenType::Type => self.parse_type_stmt(),
-            TokenType::Interface => self.parse_type_stmt(),
+            TokenType::Interface => self.parse_interface(),
             TokenType::Fn => self.parse_fn_stmt(),
             _ if self.cursor.matches(TokenType::Ident)
                 && self.cursor.matches_next(TokenType::Equal) =>
@@ -534,13 +622,19 @@ impl<'a> Parser<'a> {
             let mut params = Vec::<ast::Ref>::new();
 
             loop {
-                if self.cursor.matches(TokenType::RParen) {
+               if self.cursor.matches(TokenType::RParen) {
                     break;
+                }
+                if self.cursor.eof() {
+                    return self.alloc(ast::Node::Error {
+                        msg: "Function paramater list requires closing brace",
+                        token,
+                    });
                 }
 
                 let ident = self.parse_ident();
 
-                if self.cursor.advance_if(TokenType::Colon) {
+                if !self.cursor.advance_if(TokenType::Colon) {
                     return self.advance_alloc(ast::Node::Error {
                         msg: "Argument needs a type with ':'",
                         token,
@@ -548,17 +642,16 @@ impl<'a> Parser<'a> {
                 }
 
                 let ty = self.parse_type_expr();
-
                 params.push(self.alloc(ast::Node::Paramater { ident, ty }));
 
-                if !self.cursor.advance_if(TokenType::Colon) {
+                if !self.cursor.advance_if(TokenType::Comma) {
                     break;
                 }
             }
 
             if !self.cursor.advance_if(TokenType::RParen) {
-                return self.advance_alloc(ast::Node::Error {
-                    msg: "Function paramater list requires closing brace",
+                return self.alloc(ast::Node::Error {
+                    msg: "Fn paramaters requires a closing parenthesis",
                     token,
                 });
             }

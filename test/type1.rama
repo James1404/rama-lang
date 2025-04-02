@@ -10,3 +10,16 @@ type Player = struct {
      alive: bool;
      name: string;
 };
+
+interface Animal {
+   can_bark: bool;
+   ty: bool;
+}
+
+type File = struct {
+     path: string;
+};
+
+fn read(filename: string) Option(File, T) {
+   const a = 25 * 2;
+}

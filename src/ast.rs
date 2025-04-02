@@ -103,6 +103,10 @@ pub enum Node<'a> {
     EnumType {
         variants: Vec<Ref>,
     },
+    TypeConstructor {
+        ty: Ref,
+        args: Vec<Ref>,
+    },
 
     StructField {
         ident: Ref,
@@ -291,6 +295,12 @@ impl<'a> AST<'a> {
             }
             Node::EnumType { variants } => {
                 for node in variants {
+                    self.print(node, indentation + 1);
+                }
+            }
+            Node::TypeConstructor { ty, args } => {
+                self.print(ty, indentation + 1);
+                for node in args {
                     self.print(node, indentation + 1);
                 }
             }
