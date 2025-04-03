@@ -313,6 +313,12 @@ impl<'a> Parser<'a> {
         let token = self.cursor.current();
 
         let value = match token.ty {
+            TokenType::Asterix => {
+                self.cursor.advance();
+
+                let inner = self.parse_type_expr();
+                return self.alloc(ast::Node::PtrType(inner));
+            }
             TokenType::Struct => self.parse_struct_type(),
             TokenType::Enum => self.parse_enum_type(),
             TokenType::Ident => self.parse_ident(),
@@ -528,7 +534,7 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            return self.alloc(ast::Node::Interface { fields });
+            return self.alloc(ast::Node::Interface { ident, fields });
         }
 
         self.advance_alloc(ast::Node::Error {
@@ -622,7 +628,7 @@ impl<'a> Parser<'a> {
             let mut params = Vec::<ast::Ref>::new();
 
             loop {
-               if self.cursor.matches(TokenType::RParen) {
+                if self.cursor.matches(TokenType::RParen) {
                     break;
                 }
                 if self.cursor.eof() {
@@ -734,7 +740,7 @@ impl<'a> Parser<'a> {
         match token.ty {
             TokenType::Const => self.parse_const(),
             TokenType::Var => self.parse_var(),
-            TokenType::Comptime => self.parse_comptime(),
+            TokenType::Import => self.parse_import(),
             TokenType::Type => self.parse_type_stmt(),
             TokenType::Interface => self.parse_interface(),
             TokenType::Fn => self.parse_fn_stmt(),
@@ -749,7 +755,7 @@ impl<'a> Parser<'a> {
         let mut list: Vec<ast::Ref> = vec![];
 
         while !self.cursor.eof() {
-            list.push(self.parse_stmt());
+            list.push(self.parse_toplevel_stmt());
         }
 
         self.alloc(ast::Node::TopLevelScope(list))

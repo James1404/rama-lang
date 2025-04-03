@@ -124,8 +124,12 @@ pub enum Node<'a> {
     DistinctType(Ref),
     PtrType(Ref),
     Interface {
+        ident: Ref,
         fields: Vec<Ref>,
     },
+
+    Reference(Ref),
+    Dereference(Ref),
 
     Comptime(Ref),
     Defer(Ref),
@@ -326,11 +330,15 @@ impl<'a> AST<'a> {
             }
             Node::DistinctType(value) => self.print(value, indentation + 1),
             Node::PtrType(value) => self.print(value, indentation + 1),
-            Node::Interface { fields } => {
+            Node::Interface { ident, fields } => {
+                self.print(ident, indentation + 1);
                 for node in fields {
                     self.print(node, indentation + 1);
                 }
             }
+
+            Node::Reference(value) => self.print(value, indentation + 1),
+            Node::Dereference(value) => self.print(value, indentation + 1),
 
             Node::Comptime(value) => self.print(value, indentation + 1),
             Node::Defer(value) => self.print(value, indentation + 1),

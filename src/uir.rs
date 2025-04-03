@@ -156,12 +156,17 @@ pub enum Instruction {
         ty: Ref,
     },
 
+    Index {
+        dest: Ref,
+        value: Ref,
+        index: Ref,
+    },
+
     Call {
         dest: Ref,
         func: Ref,
         args: Vec<Ref>,
     },
-    // TODO(Implement the rest of the instructions)
 }
 
 pub struct Branch {
