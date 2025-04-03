@@ -56,6 +56,9 @@ where
         ast.pretty_print();
     }
 
+    let sema = Sema::new(ast);
+    sema.run();
+
     // let uirgen = UIRGen::new(ast);
     // let uir = uirgen.run();
 
@@ -63,8 +66,6 @@ where
     //     uir.pretty_print();
     // }
 
-    // let sema = Sema::new(uir);
-    // let tir = sema.run();
 
     // if verbose {
     //     tir.pretty_print();

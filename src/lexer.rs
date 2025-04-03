@@ -3,7 +3,7 @@ use crate::tokens::{self, Token, TokenType};
 pub struct Lexer<'a> {
     start: usize,
     position: usize,
-    line: usize,
+    line: usize, // TODO: Add line offset
 
     src: &'a [u8],
     out: Vec<Token<'a>>,

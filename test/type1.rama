@@ -23,3 +23,6 @@ type File = struct {
 fn read(filename: string) Option(File, T) {
    const a = 25 * 2;
 }
+
+fn main() {
+}
