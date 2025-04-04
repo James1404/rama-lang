@@ -1,8 +1,10 @@
+#![allow(dead_code)]
+
 use std::{collections::HashMap, result};
 
 use crate::{
-    ast::{self, AST, Node},
-    tokens::{Token, TokenType},
+    ast::{self, ASTView, Node},
+    tokens::TokenType,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -63,26 +65,6 @@ pub enum Type<'a> {
     Existential,
     Universal,
 }
-
-#[derive(Debug, Clone)]
-pub enum SemaError<'a> {
-    InvalidType,
-    InvalidTerm,
-    InvalidCast {
-        from: TypeID,
-        into: TypeID,
-    },
-    InvalidBinaryTypes {
-        lhs: TypeID,
-        op: TokenType,
-        rhs: TypeID,
-    },
-    NotDefined {
-        ident: &'a str,
-    },
-}
-
-pub type Result<'a, T> = result::Result<T, SemaError<'a>>;
 
 #[derive(Debug, Default, Clone)]
 struct TypeContext<'a> {
@@ -158,14 +140,35 @@ impl<'a> Scope<'a> {
     }
 }
 
-pub struct Sema<'a> {
-    ast: AST<'a>,
-    ctx: TypeContext<'a>,
-    scopes: Scope<'a>,
+#[derive(Debug, Clone)]
+pub enum SemaError<'a> {
+    InvalidType,
+    InvalidTerm,
+    InvalidCast {
+        from: TypeID,
+        into: TypeID,
+    },
+    InvalidBinaryTypes {
+        lhs: TypeID,
+        op: TokenType,
+        rhs: TypeID,
+    },
+    NotDefined {
+        ident: &'a str,
+    },
 }
 
-impl<'a> Sema<'a> {
-    pub fn new(ast: AST<'a>) -> Self {
+pub type Result<'a, T> = result::Result<T, SemaError<'a>>;
+
+pub struct Sema<'ast: 'tcx, 'tcx> {
+    ast: ASTView<'ast>,
+    scopes: Scope<'ast>,
+
+    ctx: TypeContext<'tcx>,
+}
+
+impl<'ast, 'tcx> Sema<'ast, 'tcx> {
+    pub fn new(ast: ASTView<'ast>) -> Self {
         Self {
             ast,
             ctx: TypeContext::new(),
@@ -173,15 +176,11 @@ impl<'a> Sema<'a> {
         }
     }
 
-    fn equal(&self, lhs: TypeID, rhs: TypeID) -> bool {
-        true
-    }
-
     fn is_subtype(&self, lhs: TypeID, rhs: TypeID) -> bool {
         true
     }
 
-    fn add(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<TypeID> {
+    fn add(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.infer(rterm)?;
 
@@ -200,28 +199,28 @@ impl<'a> Sema<'a> {
         }
     }
 
-    fn sub(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<TypeID> {
+    fn sub(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.check(rterm, t1)?;
 
         Ok(t1)
     }
 
-    fn mul(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<TypeID> {
+    fn mul(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.check(rterm, t1)?;
 
         Ok(t1)
     }
 
-    fn div(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<TypeID> {
+    fn div(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.check(rterm, t1)?;
 
         Ok(t1)
     }
 
-    fn check(&self, term: ast::Ref, against: TypeID) -> Result<TypeID> {
+    fn check(&self, term: ast::Ref, against: TypeID) -> Result<'ast, TypeID> {
         match self.ast.get(term) {
             _ => {}
         }
@@ -229,7 +228,7 @@ impl<'a> Sema<'a> {
         todo!()
     }
 
-    fn infer(&mut self, term: ast::Ref) -> Result<TypeID> {
+    fn infer(&mut self, term: ast::Ref) -> Result<'ast, TypeID> {
         match self.ast.get(term) {
             Node::Binary { lhs, rhs, op } => match op.ty {
                 TokenType::Plus => self.add(lhs, rhs),
@@ -249,9 +248,7 @@ impl<'a> Sema<'a> {
             Node::Bool(_) => Ok(self.ctx.alloc(Type::Bool)),
             Node::Ident(ident) => match self.scopes.get(ident.text) {
                 Some(ty) => Ok(ty),
-                None => Err(SemaError::NotDefined {
-                    ident: ident.text,
-                }),
+                None => Err(SemaError::NotDefined { ident: ident.text }),
             },
 
             Node::If { cond, t, f } => {
@@ -319,20 +316,32 @@ impl<'a> Sema<'a> {
         }
     }
 
-    fn term_to_ty(&self, term: ast::Ref) -> Result<TypeID> {
+    fn term_to_ty(&self, term: ast::Ref) -> Result<'ast, TypeID> {
         todo!()
     }
 
-    fn get_ident(&'a self, node: ast::Ref) -> Result<&'a str> {
+    fn get_ident(&'tcx self, node: ast::Ref) -> Result<'ast, &'ast str> {
         match self.ast.get(node) {
             Node::Ident(token) => Ok(token.text),
             _ => todo!(),
         }
     }
 
-    fn eval_function(&mut self, node: ast::Ref) -> Result<()> {
+    fn eval_function(&'tcx mut self, returnty: TypeID, node: ast::Ref) -> Result<'ast, ()> {
         match self.ast.get(node) {
             Node::VarDecl { ident, ty, value } => {
+                let ty = if let Some(ty) = ty {
+                    let ty = self.term_to_ty(ty)?;
+                    self.check(value, ty)?;
+                    ty
+                } else {
+                    self.infer(value)?
+                };
+
+                let ident = self.get_ident(ident)?;
+                self.scopes.push(ident, ty);
+            }
+            Node::ConstDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
                     let ty = self.term_to_ty(ty)?;
                     self.check(value, ty)?;
@@ -350,7 +359,50 @@ impl<'a> Sema<'a> {
         Ok(())
     }
 
-    pub fn run(self) -> Result<()>{
+    fn eval_toplevel(&'tcx mut self, node: ast::Ref) -> Result<'ast, ()> {
+        match self.ast.get(node) {
+            Node::VarDecl { ident, ty, value } => {
+                let ty = if let Some(ty) = ty {
+                    let ty = self.term_to_ty(ty)?;
+                    self.check(value, ty)?;
+                    ty
+                } else {
+                    self.infer(value)?
+                };
+
+                let ident = self.get_ident(ident)?;
+                self.scopes.push(ident, ty);
+            }
+            Node::ConstDecl { ident, ty, value } => {
+                let ty = if let Some(ty) = ty {
+                    let ty = self.term_to_ty(ty)?;
+                    self.check(value, ty)?;
+                    ty
+                } else {
+                    self.infer(value)?
+                };
+
+                let ident = self.get_ident(ident)?;
+                self.scopes.push(ident, ty);
+            }
+            Node::FnDecl {
+                ident,
+                params,
+                ret,
+                block,
+            } => {
+                let ident = self.get_ident(ident)?;
+                let returnty = self.term_to_ty(ret)?;
+
+                self.eval_function(returnty, block)?;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    pub fn run(self) -> Result<'ast, ()> {
         Ok(())
     }
 }

@@ -146,11 +146,24 @@ pub struct AST<'a> {
     pub root: Option<Ref>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ASTView<'a> {
+    data: &'a [Node<'a>],
+    pub root: Option<Ref>,
+}
+
 impl<'a> AST<'a> {
     pub fn new() -> Self {
         Self {
             data: vec![],
             root: None,
+        }
+    }
+
+    pub fn to_view(&'a self) -> ASTView<'a> {
+        ASTView {
+            data: self.data.as_slice(),
+            root: self.root,
         }
     }
 
@@ -163,8 +176,14 @@ impl<'a> AST<'a> {
         self.data.push(node);
         return Ref(index);
     }
+}
 
-    fn print(&self, handle: Ref, indentation: usize) {
+impl<'a> ASTView<'a> {
+    pub fn get(self, handle: Ref) -> Node<'a> {
+        self.data[handle.0].clone()
+    }
+
+    fn print(self, handle: Ref, indentation: usize) {
         macro_rules! out {
             ($indentation:expr, $($arg:tt)*) => {{
                 print!("{}", "\t".repeat($indentation));
@@ -350,7 +369,7 @@ impl<'a> AST<'a> {
         }
     }
 
-    pub fn pretty_print(&self) {
+    pub fn pretty_print(self) {
         if let Some(root) = self.root {
             println!("<== Printing AST ==>");
             self.print(root, 0);

@@ -50,12 +50,13 @@ where
 
     let parser = Parser::new(&tokens);
     let ast = parser.run();
+    let astview = ast.to_view();
 
     if verbose {
-        ast.pretty_print();
+        astview.pretty_print();
     }
 
-    let sema = Sema::new(ast);
+    let sema = Sema::new(astview);
     if let Err(_) = sema.run() {
         return Ok(());
     }
