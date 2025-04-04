@@ -5,7 +5,6 @@ use parser::Parser;
 
 use clap::{Parser as ClapParser, Subcommand};
 use sema::Sema;
-use uirgen::UIRGen;
 
 mod ast;
 mod lexer;
@@ -57,19 +56,9 @@ where
     }
 
     let sema = Sema::new(ast);
-    sema.run();
-
-    // let uirgen = UIRGen::new(ast);
-    // let uir = uirgen.run();
-
-    // if verbose {
-    //     uir.pretty_print();
-    // }
-
-
-    // if verbose {
-    //     tir.pretty_print();
-    // }
+    if let Err(_) = sema.run() {
+        return Ok(());
+    }
 
     Ok(())
 }

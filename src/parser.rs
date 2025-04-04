@@ -197,7 +197,15 @@ impl<'a> Parser<'a> {
             }
         };
 
-        value
+        match self.cursor.current().ty {
+            TokenType::As => {
+                self.cursor.advance();
+                let ty = self.parse_type_expr();
+
+                self.alloc(ast::Node::Cast { value, ty })
+            },
+            _ => value,
+        }
     }
 
     fn parse_enum_type(&mut self) -> ast::Ref {

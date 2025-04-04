@@ -12,3 +12,6 @@ commit MSG:
 
 status:
     @git status
+
+push:
+    @git push
