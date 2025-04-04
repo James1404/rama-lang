@@ -65,7 +65,7 @@ pub enum Type<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub enum SemaError {
+pub enum SemaError<'a> {
     InvalidType,
     InvalidTerm,
     InvalidCast {
@@ -78,11 +78,11 @@ pub enum SemaError {
         rhs: TypeID,
     },
     NotDefined {
-        ident: String,
+        ident: &'a str,
     },
 }
 
-pub type Result<T> = result::Result<T, SemaError>;
+pub type Result<'a, T> = result::Result<T, SemaError<'a>>;
 
 #[derive(Debug, Default, Clone)]
 struct TypeContext<'a> {
@@ -250,7 +250,7 @@ impl<'a> Sema<'a> {
             Node::Ident(ident) => match self.scopes.get(ident.text) {
                 Some(ty) => Ok(ty),
                 None => Err(SemaError::NotDefined {
-                    ident: ident.text.to_string(),
+                    ident: ident.text,
                 }),
             },
 
