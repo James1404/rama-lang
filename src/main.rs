@@ -1,10 +1,12 @@
 use std::{fs, io, path::Path};
 
+use clap_complete::{Generator, Shell, generate};
 use lexer::Lexer;
+use log::error;
 use parser::Parser;
 
-use clap::{Parser as ClapParser, Subcommand};
-use sema::Sema;
+use clap::{Command, CommandFactory, Parser as ClapParser, Subcommand};
+use sema::{Sema, SemaError};
 
 mod ast;
 mod lexer;
@@ -18,7 +20,10 @@ mod uirgen;
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]
 #[command(propagate_version = true)]
+#[command(name = "completion-derive")]
 struct Cli {
+    #[arg(long = "generate", value_enum)]
+    generator: Option<Shell>,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -56,9 +61,16 @@ where
         astview.pretty_print();
     }
 
-    let sema = Sema::new(astview);
-    if let Err(_) = sema.run() {
-        return Ok(());
+    let mut sema = Sema::new(astview);
+    let errors = sema.run();
+
+    for error in errors {
+        match error {
+            SemaError::InvalidTerm(term) => {
+                error!("Invalid term: {:?}", astview.get(term));
+            }
+            err => error!("{:?}", err),
+        }
     }
 
     Ok(())
@@ -78,6 +90,15 @@ fn tests(verbose: bool) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_completions<G: Generator>(generator: G, cmd: &mut Command) {
+    generate(
+        generator,
+        cmd,
+        cmd.get_name().to_string(),
+        &mut io::stdout(),
+    );
 }
 
 fn main() -> io::Result<()> {

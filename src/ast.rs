@@ -370,12 +370,13 @@ impl<'a> ASTView<'a> {
     }
 
     pub fn pretty_print(self) {
-        if let Some(root) = self.root {
-            println!("<== Printing AST ==>");
-            self.print(root, 0);
-            println!();
-        } else {
-            error!("Error: AST has not been generated");
+        match self.root {
+            Some(root) => {
+                println!("<== Printing AST ==>");
+                self.print(root, 0);
+                println!();
+            }
+            None => error!("Error: AST has not been generated"),
         }
     }
 }

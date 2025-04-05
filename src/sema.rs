@@ -4,7 +4,7 @@ use std::{collections::HashMap, result};
 
 use crate::{
     ast::{self, ASTView, Node},
-    tokens::TokenType,
+    tokens::{Token, TokenType},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -140,10 +140,15 @@ impl<'a> Scope<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
+struct Frame {
+    return_type: Option<TypeID>,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum SemaError<'a> {
     InvalidType,
-    InvalidTerm,
+    InvalidTerm(ast::Ref),
     InvalidCast {
         from: TypeID,
         into: TypeID,
@@ -154,8 +159,14 @@ pub enum SemaError<'a> {
         rhs: TypeID,
     },
     NotDefined {
-        ident: &'a str,
+        token: Token<'a>,
     },
+
+    InvalidRootNode(ast::Ref),
+    NoRootNode,
+
+    CannotReturnOutsideOfFunction,
+    FunctionDoesNotHaveReturnType,
 }
 
 pub type Result<'a, T> = result::Result<T, SemaError<'a>>;
@@ -165,6 +176,7 @@ pub struct Sema<'ast: 'tcx, 'tcx> {
     scopes: Scope<'ast>,
 
     ctx: TypeContext<'tcx>,
+    callstack: Vec<Frame>,
 }
 
 impl<'ast, 'tcx> Sema<'ast, 'tcx> {
@@ -173,6 +185,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             ast,
             ctx: TypeContext::new(),
             scopes: Scope::new(),
+            callstack: vec![],
         }
     }
 
@@ -239,7 +252,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             },
             Node::Unary { value, op } => match op.ty {
                 TokenType::Plus | TokenType::MinusEq => self.infer(value),
-                _ => Err(SemaError::InvalidTerm),
+                _ => Err(SemaError::InvalidTerm(term)),
             },
 
             Node::String(text) => Ok(self.ctx.alloc_array(Type::Int(IntKind::U8), text.len())),
@@ -248,7 +261,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             Node::Bool(_) => Ok(self.ctx.alloc(Type::Bool)),
             Node::Ident(ident) => match self.scopes.get(ident.text) {
                 Some(ty) => Ok(ty),
-                None => Err(SemaError::NotDefined { ident: ident.text }),
+                None => Err(SemaError::NotDefined { token: ident }),
             },
 
             Node::If { cond, t, f } => {
@@ -264,11 +277,11 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             Node::Dereference(term) => {
                 let t = self.infer(term)?;
 
-                if let Type::Ptr(inner) = self.ctx.get(t) {
-                    Ok(inner)
-                } else {
-                    Err(SemaError::InvalidType)
-                }
+                let Type::Ptr(inner) = self.ctx.get(t) else {
+                    return Err(SemaError::InvalidType);
+                };
+
+                Ok(inner)
             }
             Node::Reference(term) => {
                 let t = self.infer(term)?;
@@ -290,7 +303,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 }
             }
 
-            _ => Err(SemaError::InvalidTerm),
+            _ => Err(SemaError::InvalidTerm(term)),
         }
     }
 
@@ -317,17 +330,23 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
     }
 
     fn term_to_ty(&self, term: ast::Ref) -> Result<'ast, TypeID> {
-        todo!()
-    }
-
-    fn get_ident(&'tcx self, node: ast::Ref) -> Result<'ast, &'ast str> {
-        match self.ast.get(node) {
-            Node::Ident(token) => Ok(token.text),
-            _ => todo!(),
+        match self.ast.get(term) {
+            Node::Ident(token) => match self.scopes.get(token.text) {
+                Some(ty) => Ok(ty),
+                None => Err(SemaError::NotDefined { token }),
+            },
+            _ => Err(SemaError::InvalidTerm(term)),
         }
     }
 
-    fn eval_function(&'tcx mut self, returnty: TypeID, node: ast::Ref) -> Result<'ast, ()> {
+    fn get_ident(&self, node: ast::Ref) -> Result<'ast, &'ast str> {
+        match self.ast.get(node) {
+            Node::Ident(token) => Ok(token.text),
+            _ => Err(SemaError::InvalidTerm(node)),
+        }
+    }
+
+    fn eval(&mut self, node: ast::Ref) -> Result<'ast, ()> {
         match self.ast.get(node) {
             Node::VarDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
@@ -353,13 +372,27 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 let ident = self.get_ident(ident)?;
                 self.scopes.push(ident, ty);
             }
+            Node::Return(value) => {
+                let ty = self.infer(value);
+
+                let Some(frame) = self.callstack.last() else {
+                    return Err(SemaError::CannotReturnOutsideOfFunction);
+                };
+
+                match frame.return_type {
+                    Some(return_type) => {
+                        self.check(value, return_type)?;
+                    }
+                    None => return Err(SemaError::FunctionDoesNotHaveReturnType),
+                }
+            }
             _ => {}
         }
 
         Ok(())
     }
 
-    fn eval_toplevel(&'tcx mut self, node: ast::Ref) -> Result<'ast, ()> {
+    fn eval_toplevel(&mut self, node: ast::Ref) -> Result<'ast, ()> {
         match self.ast.get(node) {
             Node::VarDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
@@ -394,7 +427,10 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 let ident = self.get_ident(ident)?;
                 let returnty = self.term_to_ty(ret)?;
 
-                self.eval_function(returnty, block)?;
+                self.callstack.push(Frame {
+                    return_type: Some(returnty),
+                });
+                self.eval(block)?;
             }
             _ => {}
         }
@@ -402,7 +438,23 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         Ok(())
     }
 
-    pub fn run(self) -> Result<'ast, ()> {
-        Ok(())
+    pub fn run(&'tcx mut self) -> Vec<SemaError<'ast>> {
+        let mut errors: Vec<SemaError<'ast>> = vec![];
+
+        match self.ast.root {
+            Some(node) => match self.ast.get(node) {
+                Node::TopLevelScope(lst) => {
+                    for node in lst {
+                        if let Err(err) = self.eval_toplevel(node) {
+                            errors.push(err);
+                        }
+                    }
+                }
+                _ => errors.push(SemaError::InvalidRootNode(node)),
+            },
+            None => errors.push(SemaError::NoRootNode),
+        }
+
+        errors
     }
 }

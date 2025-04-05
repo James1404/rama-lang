@@ -15,3 +15,6 @@ status:
 
 push:
     @git push
+
+update-flake:
+    nix flake update
