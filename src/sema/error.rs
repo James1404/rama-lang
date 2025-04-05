@@ -30,4 +30,15 @@ pub enum SemaError<'a> {
     FunctionDoesNotHaveReturnType,
 }
 
+pub struct Error<'a> {
+    pub msg: String,
+    pub data: SemaError<'a>,
+}
+
+impl<'a> Error<'a> {
+    pub fn new(msg: String, data: SemaError<'a>) -> Self {
+        Self { data, msg }
+    }
+}
+
 pub type Result<'a, T> = result::Result<T, SemaError<'a>>;

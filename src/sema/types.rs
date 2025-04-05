@@ -2,31 +2,31 @@
 pub struct TypeID(usize);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Field<'a> {
+pub struct Field<'a> {
     ident: &'a str,
     ty: TypeID,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum ADTKind {
+pub enum ADTKind {
     Struct,
     Enum,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ADT<'a> {
+pub struct ADT<'a> {
     kind: ADTKind,
     fields: Vec<Field<'a>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum FloatKind {
+pub enum FloatKind {
     F32,
     F64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum IntKind {
+pub enum IntKind {
     I8,
     I16,
     I32,
@@ -41,7 +41,7 @@ pub(super) enum IntKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum Type<'a> {
+pub enum Type<'a> {
     Bool,
     Int(IntKind),
     Float(FloatKind),
@@ -58,37 +58,36 @@ pub(super) enum Type<'a> {
 }
 
 #[derive(Debug, Default, Clone)]
-pub(super) struct TypeContext<'a> {
-    pub(super) data: Vec<Type<'a>>,
+pub struct TypeContext<'a> {
+    pub data: Vec<Type<'a>>,
 }
 
 impl<'a> TypeContext<'a> {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self { data: vec![] }
     }
 
-    pub(super) fn alloc(&mut self, ty: Type<'a>) -> TypeID {
+    pub fn alloc(&mut self, ty: Type<'a>) -> TypeID {
         let index = self.data.len();
         self.data.push(ty);
         return TypeID(index);
     }
 
-    pub(super) fn alloc_slice(&mut self, inner: Type<'a>) -> TypeID {
+    pub fn alloc_slice(&mut self, inner: Type<'a>) -> TypeID {
         let inner = self.alloc(inner);
         self.alloc(Type::Slice(inner))
     }
 
-    pub(super) fn alloc_array(&mut self, inner: Type<'a>, len: usize) -> TypeID {
+    pub fn alloc_array(&mut self, inner: Type<'a>, len: usize) -> TypeID {
         let inner = self.alloc(inner);
         self.alloc(Type::Array { inner, len })
     }
 
-    pub(super) fn get(&self, id: TypeID) -> Type {
+    pub fn get(&self, id: TypeID) -> Type {
         self.data[id.0].clone()
     }
 
-    pub(super) fn get_mut(&mut self, id: TypeID) -> &mut Type<'a> {
+    pub fn get_mut(&mut self, id: TypeID) -> &mut Type<'a> {
         &mut self.data[id.0]
     }
-
 }

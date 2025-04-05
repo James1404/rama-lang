@@ -1,3 +1,5 @@
+use log::error;
+
 use crate::tokens::{self, Token, TokenType};
 
 pub struct Lexer<'a> {
@@ -27,7 +29,11 @@ impl<'a> Lexer<'a> {
     }
 
     fn append(&mut self, ty: TokenType) {
-        let text = unsafe { std::str::from_utf8_unchecked(&self.src[self.start..self.position]) };
+        let text = match std::str::from_utf8(&self.src[self.start..self.position]) {
+            Ok(text) => text,
+            Err(err) => panic!("{:?}", err),
+        };
+
         let ty = if ty == TokenType::Ident {
             match tokens::KEYWORDS.get(text).cloned() {
                 Some(ty) => ty,

@@ -6,7 +6,7 @@ use log::error;
 use parser::Parser;
 
 use clap::{Command, Parser as ClapParser, Subcommand};
-use sema::{Sema, error::SemaError};
+use sema::{Sema, SemaError};
 
 mod ast;
 mod lexer;
@@ -14,8 +14,6 @@ mod parser;
 mod sema;
 mod tir;
 mod tokens;
-mod uir;
-mod uirgen;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]
