@@ -1,175 +1,19 @@
 #![allow(dead_code)]
 
-use std::{collections::HashMap, result};
+pub mod error;
+mod frame;
+mod scope;
+mod types;
 
 use crate::{
     ast::{self, ASTView, Node},
-    tokens::{Token, TokenType},
+    tokens::TokenType,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TypeID(usize);
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Field<'a> {
-    ident: &'a str,
-    ty: TypeID,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ADTKind {
-    Struct,
-    Enum,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ADT<'a> {
-    kind: ADTKind,
-    fields: Vec<Field<'a>>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FloatKind {
-    F32,
-    F64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum IntKind {
-    I8,
-    I16,
-    I32,
-    I64,
-    ISize,
-
-    U8,
-    U16,
-    U32,
-    U64,
-    USize,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Type<'a> {
-    Bool,
-    Int(IntKind),
-    Float(FloatKind),
-
-    Slice(TypeID),
-    Array { inner: TypeID, len: usize },
-
-    ADT(ADT<'a>),
-
-    Ptr(TypeID),
-
-    Existential,
-    Universal,
-}
-
-#[derive(Debug, Default, Clone)]
-struct TypeContext<'a> {
-    data: Vec<Type<'a>>,
-}
-
-impl<'a> TypeContext<'a> {
-    fn new() -> Self {
-        Self { data: vec![] }
-    }
-
-    fn alloc(&mut self, ty: Type<'a>) -> TypeID {
-        let index = self.data.len();
-        self.data.push(ty);
-        return TypeID(index);
-    }
-
-    fn alloc_slice(&mut self, inner: Type<'a>) -> TypeID {
-        let inner = self.alloc(inner);
-        self.alloc(Type::Slice(inner))
-    }
-
-    fn alloc_array(&mut self, inner: Type<'a>, len: usize) -> TypeID {
-        let inner = self.alloc(inner);
-        self.alloc(Type::Array { inner, len })
-    }
-
-    fn get(&self, id: TypeID) -> Type {
-        self.data[id.0].clone()
-    }
-
-    fn get_mut(&mut self, id: TypeID) -> &mut Type<'a> {
-        &mut self.data[id.0]
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Scope<'a> {
-    definitions: HashMap<&'a str, TypeID>,
-    parent: Option<&'a Scope<'a>>,
-    children: Vec<Scope<'a>>,
-}
-
-impl<'a> Scope<'a> {
-    fn new() -> Self {
-        Self {
-            definitions: HashMap::new(),
-            parent: None,
-            children: vec![],
-        }
-    }
-
-    fn new_with_parent(parent: &'a Scope<'a>) -> Self {
-        Self {
-            definitions: HashMap::new(),
-            parent: Some(parent),
-            children: vec![],
-        }
-    }
-
-    fn push(&mut self, ident: &'a str, ty: TypeID) {
-        self.definitions.insert(ident, ty);
-    }
-
-    fn get(&self, ident: &'a str) -> Option<TypeID> {
-        match self.definitions.get(ident) {
-            Some(ty) => Some(*ty),
-            None => match self.parent {
-                Some(parent) => parent.get(ident),
-                None => None,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Frame {
-    return_type: Option<TypeID>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum SemaError<'a> {
-    InvalidType,
-    InvalidTerm(ast::Ref),
-    InvalidCast {
-        from: TypeID,
-        into: TypeID,
-    },
-    InvalidBinaryTypes {
-        lhs: TypeID,
-        op: TokenType,
-        rhs: TypeID,
-    },
-    NotDefined {
-        token: Token<'a>,
-    },
-
-    InvalidRootNode(ast::Ref),
-    NoRootNode,
-
-    CannotReturnOutsideOfFunction,
-    FunctionDoesNotHaveReturnType,
-}
-
-pub type Result<'a, T> = result::Result<T, SemaError<'a>>;
+pub use error::{Result, SemaError};
+use frame::Frame;
+use scope::Scope;
+use types::{FloatKind, IntKind, Type, TypeContext, TypeID};
 
 pub struct Sema<'ast: 'tcx, 'tcx> {
     ast: ASTView<'ast>,
@@ -189,7 +33,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         }
     }
 
-    fn is_subtype(&self, lhs: TypeID, rhs: TypeID) -> bool {
+    fn is_subtype(&self, _lhs: TypeID, _rhs: TypeID) -> bool {
         true
     }
 
@@ -215,25 +59,60 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
     fn sub(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.check(rterm, t1)?;
+        match (self.ctx.get(t1), self.ctx.get(t2)) {
+            (Type::Int(_), Type::Int(_)) => Ok(t1),
+            (Type::Float(_), Type::Float(_)) => Ok(t1),
 
-        Ok(t1)
+            (Type::Float(_), Type::Int(_)) | (Type::Int(_), Type::Float(_)) => {
+                Err(SemaError::InvalidType)
+            }
+            _ => Err(SemaError::InvalidBinaryTypes {
+                lhs: t1,
+                op: TokenType::Minus,
+                rhs: t2,
+            }),
+        }
     }
 
     fn mul(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.check(rterm, t1)?;
 
-        Ok(t1)
+        match (self.ctx.get(t1), self.ctx.get(t2)) {
+            (Type::Int(_), Type::Int(_)) => Ok(t1),
+            (Type::Float(_), Type::Float(_)) => Ok(t1),
+
+            (Type::Float(_), Type::Int(_)) | (Type::Int(_), Type::Float(_)) => {
+                Err(SemaError::InvalidType)
+            }
+            _ => Err(SemaError::InvalidBinaryTypes {
+                lhs: t1,
+                op: TokenType::Asterix,
+                rhs: t2,
+            }),
+        }
     }
 
     fn div(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.check(rterm, t1)?;
 
-        Ok(t1)
+        match (self.ctx.get(t1), self.ctx.get(t2)) {
+            (Type::Int(_), Type::Int(_)) => Ok(t1),
+            (Type::Float(_), Type::Float(_)) => Ok(t1),
+
+            (Type::Float(_), Type::Int(_)) | (Type::Int(_), Type::Float(_)) => {
+                Err(SemaError::InvalidType)
+            }
+            _ => Err(SemaError::InvalidBinaryTypes {
+                lhs: t1,
+                op: TokenType::Slash,
+                rhs: t2,
+            }),
+        }
     }
 
-    fn check(&self, term: ast::Ref, against: TypeID) -> Result<'ast, TypeID> {
+    fn check(&self, term: ast::Ref, _against: TypeID) -> Result<'ast, TypeID> {
         match self.ast.get(term) {
             _ => {}
         }
@@ -373,8 +252,6 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 self.scopes.push(ident, ty);
             }
             Node::Return(value) => {
-                let ty = self.infer(value);
-
                 let Some(frame) = self.callstack.last() else {
                     return Err(SemaError::CannotReturnOutsideOfFunction);
                 };
@@ -420,11 +297,11 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             }
             Node::FnDecl {
                 ident,
-                params,
+                params: _,
                 ret,
                 block,
             } => {
-                let ident = self.get_ident(ident)?;
+                let _ident = self.get_ident(ident)?;
                 let returnty = self.term_to_ty(ret)?;
 
                 self.callstack.push(Frame {

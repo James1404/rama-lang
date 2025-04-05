@@ -5,8 +5,8 @@ use lexer::Lexer;
 use log::error;
 use parser::Parser;
 
-use clap::{Command, CommandFactory, Parser as ClapParser, Subcommand};
-use sema::{Sema, SemaError};
+use clap::{Command, Parser as ClapParser, Subcommand};
+use sema::{Sema, error::SemaError};
 
 mod ast;
 mod lexer;
@@ -92,6 +92,7 @@ fn tests(verbose: bool) -> io::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn print_completions<G: Generator>(generator: G, cmd: &mut Command) {
     generate(
         generator,

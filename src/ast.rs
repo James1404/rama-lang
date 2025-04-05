@@ -167,10 +167,6 @@ impl<'a> AST<'a> {
         }
     }
 
-    pub fn get(&self, handle: Ref) -> Node {
-        self.data[handle.0].clone()
-    }
-
     pub fn alloc(&mut self, node: Node<'a>) -> Ref {
         let index = self.data.len();
         self.data.push(node);
