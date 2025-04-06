@@ -53,58 +53,60 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
                 "Cannot add types {} and {}",
-                self.ctx.display(t1), self.ctx.display(t2)
+                self.ctx.display(t1),
+                self.ctx.display(t2)
             ))),
         }
     }
 
     fn sub(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
-        let t2 = self.check(rterm, t1)?;
+        let t2 = self.infer(rterm)?;
+
         match (self.ctx.get(t1), self.ctx.get(t2)) {
             (Type::Int(_), Type::Int(_)) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
-            _ => Err(SemaError::InvalidBinaryTypes {
-                lhs: t1,
-                op: TokenType::Minus,
-                rhs: t2,
-            }),
+            _ => Err(SemaError::Err(format!(
+                "Cannot subtract types {} and {}",
+                self.ctx.display(t1),
+                self.ctx.display(t2)
+            ))),
         }
     }
 
     fn mul(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
-        let t2 = self.check(rterm, t1)?;
+        let t2 = self.infer(rterm)?;
 
         match (self.ctx.get(t1), self.ctx.get(t2)) {
             (Type::Int(_), Type::Int(_)) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
-            _ => Err(SemaError::InvalidBinaryTypes {
-                lhs: t1,
-                op: TokenType::Asterix,
-                rhs: t2,
-            }),
+            _ => Err(SemaError::Err(format!(
+                "Cannot multiply types {} and {}",
+                self.ctx.display(t1),
+                self.ctx.display(t2)
+            ))),
         }
     }
 
     fn div(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
-        let t2 = self.check(rterm, t1)?;
+        let t2 = self.infer(rterm)?;
 
         match (self.ctx.get(t1), self.ctx.get(t2)) {
             (Type::Int(_), Type::Int(_)) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
-            _ => Err(SemaError::InvalidBinaryTypes {
-                lhs: t1,
-                op: TokenType::Slash,
-                rhs: t2,
-            }),
+            _ => Err(SemaError::Err(format!(
+                "Cannot divide types {} and {}",
+                self.ctx.display(t1),
+                self.ctx.display(t2)
+            ))),
         }
     }
 
     fn check(&mut self, term: ast::Ref, against: TypeID) -> Result<'ast, TypeID> {
         let ty = self.infer(term)?;
-        if self.ctx.get(ty) == self.ctx.get(against) {
+        if self.subtype(ty, against) {
             Ok(ty)
         } else {
             Err(SemaError::InvalidType)

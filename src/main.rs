@@ -68,12 +68,7 @@ where
     let errors = sema.run();
 
     for error in errors {
-        match error {
-            SemaError::InvalidTerm(term) => {
-                error!("Invalid term: {:?}", astview.get(term));
-            }
-            err => error!("{:?}", err),
-        }
+        println!("Error: {}", error);
     }
 
     Ok(())

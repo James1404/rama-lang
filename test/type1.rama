@@ -1,7 +1,6 @@
 type string = [u8];
 
 fn read(filename: string) void {
-   const a = 25 * 2 as i32;
-
-   const b = a  + "string";
+   const a = (25 * 2) as i32;
+   const b = a * "string";
 }

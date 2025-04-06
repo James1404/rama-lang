@@ -35,7 +35,7 @@ pub enum SemaError<'a> {
 impl<'a> Display for SemaError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SemaError::InvalidType => todo!(),
+            SemaError::InvalidType => write!(f, "Invalid Type"),
             SemaError::InvalidTerm(_) => todo!(),
             SemaError::InvalidCast { from, into } => todo!(),
             SemaError::InvalidBinaryTypes { lhs, op, rhs } => todo!(),
@@ -45,7 +45,7 @@ impl<'a> Display for SemaError<'a> {
             SemaError::CannotAssignToConst(token) => todo!(),
             SemaError::CannotReturnOutsideOfFunction => todo!(),
             SemaError::FunctionDoesNotHaveReturnType => todo!(),
-            SemaError::Err(msg) => write!(f, "Err \"{}\"", msg),
+            SemaError::Err(msg) => write!(f, "{}", msg),
         }
     }
 }
