@@ -2,14 +2,22 @@ use crate::sema::types::TypeID;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub(in crate::sema) struct Scope<'a> {
-    definitions: HashMap<&'a str, TypeID>,
+pub(super) enum Def {
+    Const(TypeID),
+    Var(TypeID),
+    Fn(TypeID),
+    Type(TypeID),
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct Scope<'a> {
+    definitions: HashMap<&'a str, Def>,
     parent: Option<&'a Scope<'a>>,
     children: Vec<Scope<'a>>,
 }
 
 impl<'a> Scope<'a> {
-    pub(in crate::sema) fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             definitions: HashMap::new(),
             parent: None,
@@ -17,7 +25,7 @@ impl<'a> Scope<'a> {
         }
     }
 
-    pub(in crate::sema) fn new_with_parent(parent: &'a Scope<'a>) -> Self {
+    pub(super) fn new_with_parent(parent: &'a Scope<'a>) -> Self {
         Self {
             definitions: HashMap::new(),
             parent: Some(parent),
@@ -25,13 +33,13 @@ impl<'a> Scope<'a> {
         }
     }
 
-    pub(in crate::sema) fn push(&mut self, ident: &'a str, ty: TypeID) {
-        self.definitions.insert(ident, ty);
+    pub(super) fn push(&mut self, ident: &'a str, def: Def) {
+        self.definitions.insert(ident, def);
     }
 
-    pub(in crate::sema) fn get(&self, ident: &'a str) -> Option<TypeID> {
+    pub(super) fn get(&self, ident: &'a str) -> Option<Def> {
         match self.definitions.get(ident) {
-            Some(ty) => Some(*ty),
+            Some(def) => Some(def.clone()),
             None => match self.parent {
                 Some(parent) => parent.get(ident),
                 None => None,

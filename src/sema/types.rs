@@ -3,8 +3,8 @@ pub struct TypeID(usize);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Field<'a> {
-    ident: &'a str,
-    ty: TypeID,
+    pub ident: &'a str,
+    pub ty: Option<TypeID>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -14,9 +14,15 @@ pub enum ADTKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum GenericArg {
+    Type(TypeID),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ADT<'a> {
-    kind: ADTKind,
-    fields: Vec<Field<'a>>,
+    pub kind: ADTKind,
+    pub fields: Vec<Field<'a>>,
+    pub generic_args: Vec<GenericArg>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,11 +53,19 @@ pub enum Type<'a> {
     Float(FloatKind),
 
     Slice(TypeID),
-    Array { inner: TypeID, len: usize },
+    Array {
+        inner: TypeID,
+        len: usize,
+    },
 
     ADT(ADT<'a>),
 
     Ptr(TypeID),
+
+    Fn {
+        parameters: Vec<TypeID>,
+        return_ty: TypeID,
+    },
 
     Existential,
     Universal,

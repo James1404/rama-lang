@@ -19,15 +19,17 @@ pub enum SemaError<'a> {
         op: TokenType,
         rhs: TypeID,
     },
-    NotDefined {
-        token: Token<'a>,
-    },
+    NotDefined(Token<'a>),
 
     InvalidRootNode(ast::Ref),
     NoRootNode,
 
+    CannotAssignToConst(Token<'a>),
+
     CannotReturnOutsideOfFunction,
     FunctionDoesNotHaveReturnType,
+
+    Err(&'a str),
 }
 
 pub struct Error<'a> {

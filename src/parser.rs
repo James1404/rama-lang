@@ -163,13 +163,17 @@ impl<'a> Parser<'a> {
         let token = self.cursor.current();
 
         let value = match token.ty {
-            TokenType::String => self.advance_alloc(ast::Node::String(token.text)),
-            TokenType::Float => self.advance_alloc(ast::Node::Float(token.text)),
-            TokenType::Int => self.advance_alloc(ast::Node::Int(token.text)),
+            TokenType::String => {
+                self.advance_alloc(ast::Node::Literal(ast::Literal::String(token.text)))
+            }
+            TokenType::Float => {
+                self.advance_alloc(ast::Node::Literal(ast::Literal::Float(token.text)))
+            }
+            TokenType::Int => self.advance_alloc(ast::Node::Literal(ast::Literal::Int(token.text))),
             TokenType::Ident => self.advance_alloc(ast::Node::Ident(token)),
 
-            TokenType::True => self.advance_alloc(ast::Node::Bool(true)),
-            TokenType::False => self.advance_alloc(ast::Node::Bool(false)),
+            TokenType::True => self.advance_alloc(ast::Node::Literal(ast::Literal::Bool(true))),
+            TokenType::False => self.advance_alloc(ast::Node::Literal(ast::Literal::Bool(false))),
 
             TokenType::If => self.parse_if(),
 
@@ -203,7 +207,7 @@ impl<'a> Parser<'a> {
                 let ty = self.parse_type_expr();
 
                 self.alloc(ast::Node::Cast { value, ty })
-            },
+            }
             _ => value,
         }
     }
@@ -223,7 +227,7 @@ impl<'a> Parser<'a> {
                 });
             }
 
-            let mut variants = Vec::<ast::Ref>::new();
+            let mut variants = Vec::<ast::EnumVariant>::new();
 
             while !self.cursor.advance_if(TokenType::RBrace) {
                 if self.cursor.eof() {
@@ -241,8 +245,7 @@ impl<'a> Parser<'a> {
                     None
                 };
 
-                let variant = self.alloc(ast::Node::EnumVariant { ident, ty });
-                variants.push(variant);
+                variants.push(ast::EnumVariant { ident, ty });
 
                 if !self.cursor.advance_if(TokenType::Semicolon) {
                     return self.advance_alloc(ast::Node::Error {
@@ -252,7 +255,7 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            return self.alloc(ast::Node::EnumType { variants });
+            return self.alloc(ast::Node::EnumType(variants));
         }
 
         self.advance_alloc(ast::Node::Error {
@@ -276,7 +279,7 @@ impl<'a> Parser<'a> {
                 });
             }
 
-            let mut fields = Vec::<ast::Ref>::new();
+            let mut fields = Vec::<ast::StructField>::new();
 
             while !self.cursor.advance_if(TokenType::RBrace) {
                 if self.cursor.eof() {
@@ -297,8 +300,7 @@ impl<'a> Parser<'a> {
 
                 let ty = self.parse_type_expr();
 
-                let field = self.alloc(ast::Node::StructField { ident, ty });
-                fields.push(field);
+                fields.push(ast::StructField { ident, ty });
 
                 if !self.cursor.advance_if(TokenType::Semicolon) {
                     return self.advance_alloc(ast::Node::Error {
@@ -308,7 +310,7 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            return self.alloc(ast::Node::StructType { fields });
+            return self.alloc(ast::Node::StructType(fields));
         }
 
         self.advance_alloc(ast::Node::Error {
@@ -510,7 +512,7 @@ impl<'a> Parser<'a> {
                 });
             }
 
-            let mut fields = Vec::<ast::Ref>::new();
+            let mut fields = Vec::<ast::StructField>::new();
 
             while !self.cursor.advance_if(TokenType::RBrace) {
                 if self.cursor.eof() {
@@ -531,8 +533,7 @@ impl<'a> Parser<'a> {
 
                 let ty = self.parse_type_expr();
 
-                let field = self.alloc(ast::Node::StructField { ident, ty });
-                fields.push(field);
+                fields.push(ast::StructField { ident, ty });
 
                 if !self.cursor.advance_if(TokenType::Semicolon) {
                     return self.advance_alloc(ast::Node::Error {

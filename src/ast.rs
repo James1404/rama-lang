@@ -7,6 +7,27 @@ use crate::tokens::Token;
 pub struct Ref(usize);
 
 #[derive(Debug, Clone, IntoStaticStr)]
+pub enum Literal<'a> {
+    Float(&'a str),
+    Int(&'a str),
+    String(&'a str),
+    Bool(bool),
+}
+
+
+#[derive(Debug, Clone)]
+pub struct StructField {
+    pub ident: Ref,
+    pub ty: Ref,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub ident: Ref,
+    pub ty: Option<Ref>,
+}
+
+#[derive(Debug, Clone, IntoStaticStr)]
 pub enum Node<'a> {
     None,
 
@@ -25,10 +46,7 @@ pub enum Node<'a> {
         op: Token<'a>,
     },
 
-    Float(&'a str),
-    Int(&'a str),
-    String(&'a str),
-    Bool(bool),
+    Literal(Literal<'a>),
     Ident(Token<'a>),
 
     TopLevelScope(Vec<Ref>),
@@ -97,25 +115,14 @@ pub enum Node<'a> {
         args: Vec<Ref>,
         body: Ref,
     },
-    StructType {
-        fields: Vec<Ref>,
-    },
-    EnumType {
-        variants: Vec<Ref>,
-    },
+    StructType(Vec<StructField>),
+    EnumType(Vec<EnumVariant>),
+
     TypeConstructor {
         ty: Ref,
         args: Vec<Ref>,
     },
 
-    StructField {
-        ident: Ref,
-        ty: Ref,
-    },
-    EnumVariant {
-        ident: Ref,
-        ty: Option<Ref>,
-    },
     FnType {
         params: Ref,
         ret: Ref,
@@ -125,7 +132,7 @@ pub enum Node<'a> {
     PtrType(Ref),
     Interface {
         ident: Ref,
-        fields: Vec<Ref>,
+        fields: Vec<StructField>,
     },
 
     Reference(Ref),
@@ -215,10 +222,14 @@ impl<'a> ASTView<'a> {
                 out!(indentation + 1, "{}", Into::<&'static str>::into(op.ty));
                 self.print(value, indentation + 1);
             }
-            Node::Float(val) => out!(indentation + 1, "{}", val),
-            Node::Int(val) => out!(indentation + 1, "{}", val),
-            Node::String(val) => out!(indentation + 1, "{}", val),
-            Node::Bool(val) => out!(indentation + 1, "{}", val),
+
+            Node::Literal(lit) => match lit {
+                Literal::Float(val) => out!(indentation + 1, "{}", val),
+                Literal::Int(val) => out!(indentation + 1, "{}", val),
+                Literal::String(val) => out!(indentation + 1, "{}", val),
+                Literal::Bool(val) => out!(indentation + 1, "{}", val),
+            },
+
             Node::Ident(token) => out!(indentation + 1, "{}", token.text),
             Node::TopLevelScope(items) => {
                 for node in items {
@@ -307,14 +318,18 @@ impl<'a> ASTView<'a> {
                 }
                 self.print(body, indentation + 1);
             }
-            Node::StructType { fields } => {
+            Node::StructType(fields) => {
                 for node in fields {
-                    self.print(node, indentation + 1);
+                    self.print(node.ident, indentation + 1);
+                    self.print(node.ty, indentation + 1);
                 }
             }
-            Node::EnumType { variants } => {
+            Node::EnumType(variants) => {
                 for node in variants {
-                    self.print(node, indentation + 1);
+                    self.print(node.ident, indentation + 1);
+                    if let Some(ty) = node.ty {
+                        self.print(ty, indentation + 1);
+                    }
                 }
             }
             Node::TypeConstructor { ty, args } => {
@@ -324,16 +339,6 @@ impl<'a> ASTView<'a> {
                 }
             }
 
-            Node::StructField { ident, ty } => {
-                self.print(ident, indentation + 1);
-                self.print(ty, indentation + 1);
-            }
-            Node::EnumVariant { ident, ty } => {
-                self.print(ident, indentation + 1);
-                if let Some(ty) = ty {
-                    self.print(ty, indentation + 1);
-                }
-            }
             Node::FnType {
                 params,
                 ret,
@@ -348,7 +353,8 @@ impl<'a> ASTView<'a> {
             Node::Interface { ident, fields } => {
                 self.print(ident, indentation + 1);
                 for node in fields {
-                    self.print(node, indentation + 1);
+                    self.print(node.ident, indentation + 1);
+                    self.print(node.ty, indentation + 1);
                 }
             }
 
