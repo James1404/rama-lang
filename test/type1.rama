@@ -1,28 +1,5 @@
-type Num = i32;
+type string = [u8];
 
-type Option(T) = enum {
-     Some: T;
-     None;
-};
-
-type Player = struct {
-     health: i32;
-     alive: bool;
-     name: string;
-};
-
-interface Animal {
-   can_bark: bool;
-   ty: bool;
-}
-
-type File = struct {
-     path: string;
-};
-
-fn read(filename: string) Option(File, T) {
+fn read(filename: string) void {
    const a = 25 * 2 as i32;
-}
-
-fn main() void {
 }

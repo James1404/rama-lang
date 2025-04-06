@@ -130,6 +130,9 @@ pub enum Node<'a> {
     },
     DistinctType(Ref),
     PtrType(Ref),
+    SliceType(Ref),
+    ArrayType(Ref, usize),
+
     Interface {
         ident: Ref,
         fields: Vec<StructField>,
@@ -350,6 +353,12 @@ impl<'a> ASTView<'a> {
             }
             Node::DistinctType(value) => self.print(value, indentation + 1),
             Node::PtrType(value) => self.print(value, indentation + 1),
+            Node::SliceType(value) =>self.print(value, indentation + 1),
+            Node::ArrayType(value, len) => {
+                self.print(value, indentation + 1);
+                out!(indentation + 1, "len: {}", len);
+            }
+
             Node::Interface { ident, fields } => {
                 self.print(ident, indentation + 1);
                 for node in fields {

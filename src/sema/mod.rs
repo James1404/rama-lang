@@ -248,7 +248,22 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
                 Ok(self.ctx.alloc(Type::ADT(adt)))
             }
+            Node::PtrType(inner) => {
+                let inner = self.term_to_ty(inner, None)?;
+                Ok(self.ctx.alloc(Type::Ptr(inner)))
+            }
+            Node::SliceType(inner) => {
+                let inner = self.term_to_ty(inner, None)?;
+                Ok(self.ctx.alloc(Type::Slice(inner)))
+            }
+            Node::ArrayType(inner, len) => {
+                let inner = self.term_to_ty(inner, None)?;
+                Ok(self.ctx.alloc(Type::Array { inner, len }))
+            }
+
             Node::Ident(token) => match token.text {
+                "void" => Ok(self.ctx.alloc(Type::Void)),
+
                 "i8" => Ok(self.ctx.alloc(Type::Int(IntKind::I8))),
                 "i16" => Ok(self.ctx.alloc(Type::Int(IntKind::I16))),
                 "i32" => Ok(self.ctx.alloc(Type::Int(IntKind::I32))),
@@ -266,13 +281,10 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
                 "bool" => Ok(self.ctx.alloc(Type::Bool)),
 
-                text => {
-                    if let Some(Def::Type(ty)) = self.scopes.get(text) {
-                        Ok(ty)
-                    } else {
-                        Err(SemaError::NotDefined(token))
-                    }
-                }
+                text => match self.scopes.get(text) {
+                    Some(Def::Type(ty)) => Ok(ty),
+                    _ => Err(SemaError::NotDefined(token)),
+                },
             },
             _ => Err(SemaError::InvalidTerm(term)),
         }

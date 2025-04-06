@@ -332,6 +332,32 @@ impl<'a> Parser<'a> {
             TokenType::Struct => self.parse_struct_type(),
             TokenType::Enum => self.parse_enum_type(),
             TokenType::Ident => self.parse_ident(),
+            TokenType::LBracket => {
+                self.cursor.advance();
+
+                let inner = self.parse_type_expr();
+
+                let node = if self.cursor.advance_if(TokenType::Semicolon) {
+                    let token = self.cursor.current();
+                    let len = match token.ty {
+                        TokenType::Int => {
+                            self.cursor.advance();
+                            token.text.parse::<usize>().unwrap()
+                        }
+                        _ => todo!("Add error message for invalid array size"),
+                    };
+
+                    ast::Node::ArrayType(inner, len)
+                } else {
+                    ast::Node::SliceType(inner)
+                };
+
+                if !self.cursor.advance_if(TokenType::RBracket) {
+                    todo!("Error")
+                }
+
+                self.alloc(node)
+            },
             _ => {
                 return self.advance_alloc(ast::Node::Error {
                     msg: "Invalid type",

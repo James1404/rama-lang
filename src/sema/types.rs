@@ -48,6 +48,8 @@ pub enum IntKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type<'a> {
+    Void,
+    
     Bool,
     Int(IntKind),
     Float(FloatKind),
