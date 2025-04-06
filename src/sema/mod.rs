@@ -12,6 +12,7 @@ use crate::{
 
 pub use error::{Result, SemaError};
 use frame::Frame;
+use log::info;
 use scope::{Def, Scope};
 use types::{ADT, ADTKind, Field, FloatKind, IntKind, Type, TypeContext, TypeID};
 
@@ -50,11 +51,10 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         match (self.ctx.get(t1), self.ctx.get(t2)) {
             (Type::Int(_), Type::Int(_)) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
-            _ => Err(SemaError::InvalidBinaryTypes {
-                lhs: t1,
-                op: TokenType::Plus,
-                rhs: t2,
-            }),
+            _ => Err(SemaError::Err(format!(
+                "Cannot add types {} and {}",
+                self.ctx.display(t1), self.ctx.display(t2)
+            ))),
         }
     }
 
@@ -104,8 +104,10 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
     fn check(&mut self, term: ast::Ref, against: TypeID) -> Result<'ast, TypeID> {
         let ty = self.infer(term)?;
-        match (self.ctx.get(ty), self.ctx.get(against)) {
-            _ => todo!(),
+        if self.ctx.get(ty) == self.ctx.get(against) {
+            Ok(ty)
+        } else {
+            Err(SemaError::InvalidType)
         }
     }
 
@@ -167,7 +169,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
             Node::Cast { value, ty } => {
                 let term_ty = self.infer(value)?;
-                let ty = self.infer(ty)?;
+                let ty = self.term_to_ty(ty, None)?;
                 if self.can_cast(term_ty, ty) {
                     Ok(ty)
                 } else {
@@ -320,10 +322,17 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                     self.infer(value)?
                 };
 
+                info!("{:?}", self.ctx.get(ty));
+
                 let ident = self.get_ident(ident)?;
                 self.scopes.push(ident.text, Def::Const(ty));
             }
 
+            Node::Scope(lst) => {
+                for node in lst {
+                    self.eval(node)?;
+                }
+            }
             Node::Assignment { ident, value } => {
                 let ident = self.get_ident(ident)?;
                 let ty = match self.scopes.get(ident.text) {
@@ -347,7 +356,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                     None => return Err(SemaError::FunctionDoesNotHaveReturnType),
                 }
             }
-            _ => {}
+            _ => return Err(SemaError::InvalidTerm(node)),
         }
 
         Ok(())

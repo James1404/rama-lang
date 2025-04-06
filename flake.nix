@@ -20,6 +20,7 @@
             packages = with pkgs; [
               pkg-config
               lldb
+              gdb
 
               rust-bin.stable.latest.default
               rust-analyzer
