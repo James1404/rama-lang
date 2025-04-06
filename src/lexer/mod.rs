@@ -1,12 +1,12 @@
-use log::error;
+mod position;
+pub mod token;
 
-use crate::tokens::{self, Token, TokenType};
+use position::Position;
+
+pub use crate::lexer::token::{Token, TokenType, precedence};
 
 pub struct Lexer<'a> {
-    start: usize,
-    position: usize,
-    line: usize, // TODO: Add line offset
-
+    position: Position,
     src: &'a [u8],
     out: Vec<Token<'a>>,
 }
@@ -14,10 +14,7 @@ pub struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     pub fn new(src: &'a str) -> Self {
         Self {
-            start: 0,
-            position: 0,
-            line: 1,
-
+            position: Position { current: 0, start: 0, line: 1, offset: 0 },
             src: src.as_bytes(),
 
             out: vec![],
@@ -25,17 +22,17 @@ impl<'a> Lexer<'a> {
     }
 
     fn current(&self) -> u8 {
-        self.src[self.position]
+        self.src[self.position.current]
     }
 
     fn append(&mut self, ty: TokenType) {
-        let text = match std::str::from_utf8(&self.src[self.start..self.position]) {
+        let text = match std::str::from_utf8(&self.src[self.position.start..self.position.current]) {
             Ok(text) => text,
             Err(err) => panic!("{:?}", err),
         };
 
         let ty = if ty == TokenType::Ident {
-            match tokens::KEYWORDS.get(text).cloned() {
+            match token::KEYWORDS.get(text).cloned() {
                 Some(ty) => ty,
                 None => TokenType::Ident,
             }
@@ -45,9 +42,8 @@ impl<'a> Lexer<'a> {
 
         let token = Token {
             text,
-            line: self.line,
-            location: self.start,
             ty,
+            pos: self.position,
         };
 
         self.out.push(token);
@@ -69,7 +65,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn advance(&mut self) {
-        self.position += 1;
+        self.position.current += 1;
     }
 
     fn advance_if(&mut self, cond: u8) -> bool {
@@ -82,8 +78,8 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn run(mut self) -> Vec<Token<'a>> {
-        while self.position < self.src.len() {
-            self.start = self.position;
+        while self.position.current < self.src.len() {
+            self.position.start = self.position.current;
 
             match self.current() {
                 b'(' => self.append_single(TokenType::LParen),
@@ -127,7 +123,7 @@ impl<'a> Lexer<'a> {
                         self.advance();
                     }
 
-                    self.start += 1;
+                    self.position.start += 1;
                     self.append(TokenType::String);
 
                     self.advance();
@@ -136,7 +132,7 @@ impl<'a> Lexer<'a> {
                 b' ' | b'\t' => self.advance(),
                 b'\n' | b'\r' => {
                     self.advance();
-                    self.line += 1;
+                    self.position.line += 1;
                 }
 
                 c if c.is_ascii_digit() => {

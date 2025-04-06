@@ -1,7 +1,7 @@
 use log::error;
 use strum_macros::IntoStaticStr;
 
-use crate::tokens::Token;
+use crate::lexer::Token;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Ref(usize);
@@ -30,11 +30,6 @@ pub struct EnumVariant {
 #[derive(Debug, Clone, IntoStaticStr)]
 pub enum Node<'a> {
     None,
-
-    Error {
-        msg: &'a str,
-        token: Token<'a>,
-    },
 
     Binary {
         lhs: Ref,
@@ -205,16 +200,6 @@ impl<'a> ASTView<'a> {
 
         match self.get(handle) {
             Node::None => {}
-
-            Node::Error { msg, token } => {
-                out!(
-                    indentation + 1,
-                    "\"{}\" at [{};{}]",
-                    msg,
-                    token.line,
-                    token.location
-                )
-            }
 
             Node::Binary { lhs, rhs, op } => {
                 out!(indentation + 1, "{}", Into::<&'static str>::into(op.ty));

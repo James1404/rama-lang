@@ -7,7 +7,7 @@ mod types;
 
 use crate::{
     ast::{self, ASTView, EnumVariant, Literal, Node},
-    tokens::{Token, TokenType},
+    lexer::{Token, TokenType},
 };
 
 pub use error::{Result, SemaError};
@@ -207,7 +207,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
     fn term_to_ty(
         &mut self,
         term: ast::Ref,
-        arguments: Option<Vec<ast::Ref>>,
+        _arguments: Option<Vec<ast::Ref>>,
     ) -> Result<'ast, TypeID> {
         match self.ast.get(term) {
             Node::StructType(fields) => {

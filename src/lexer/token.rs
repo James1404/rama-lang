@@ -1,5 +1,6 @@
 use phf::phf_map;
 use strum_macros::IntoStaticStr;
+use crate::lexer::position::Position;
 
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 pub enum TokenType {
@@ -88,9 +89,8 @@ pub enum TokenType {
 #[derive(Debug, Clone, Copy)]
 pub struct Token<'a> {
     pub text: &'a str,
-    pub line: usize,
-    pub location: usize,
     pub ty: TokenType,
+    pub pos: Position,
 }
 
 pub static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
@@ -145,4 +145,5 @@ pub fn precedence(token: Token<'_>) -> i32 {
 
         _ => -1,
     }
+
 }

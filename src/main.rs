@@ -13,7 +13,6 @@ mod lexer;
 mod parser;
 mod sema;
 mod tir;
-mod tokens;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]
@@ -52,7 +51,13 @@ where
     }
 
     let parser = Parser::new(&tokens);
-    let ast = parser.run();
+    let ast = match parser.run() {
+        Ok(ast) => ast,
+        Err(err) => {
+            error!("[{}; {}] {}", err.token.pos.line, err.token.pos.start, err.msg);
+            return Ok(());
+        }
+    };
     let astview = ast.to_view();
 
     if verbose {

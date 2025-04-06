@@ -3,7 +3,7 @@ use std::result;
 use crate::{
     ast,
     sema::types::TypeID,
-    tokens::{Token, TokenType},
+    lexer::{Token, TokenType},
 };
 
 #[derive(Debug, Clone, Copy)]
