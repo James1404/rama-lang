@@ -4,7 +4,7 @@ use strum_macros::IntoStaticStr;
 use crate::lexer::Token;
 
 #[derive(Debug, Clone, Copy)]
-pub struct Ref(usize);
+pub struct Ref(pub usize);
 
 #[derive(Debug, Clone, IntoStaticStr)]
 pub enum Literal<'a> {

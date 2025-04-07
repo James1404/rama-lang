@@ -5,6 +5,8 @@ mod frame;
 mod scope;
 mod types;
 
+use std::ffi::{CStr, CString};
+
 use crate::{
     ast::{self, ASTView, EnumVariant, Literal, Node, Ref},
     lexer::{Token, TokenType},
@@ -18,6 +20,7 @@ use types::{ADT, ADTKind, Field, FloatKind, IntKind, Type, TypeContext, TypeID};
 
 extern crate llvm_sys as llvm;
 
+#[derive(Debug, Clone)]
 pub struct TypedAST<'a> {
     data: Vec<Type<'a>>,
     pub root: Option<Ref>,
@@ -29,6 +32,10 @@ impl<'a> TypedAST<'a> {
             data: (0..ast.len()).map(|_| Type::Unit).collect::<Vec<Type>>(),
             root: None,
         }
+    }
+
+    pub fn get(&self, node: Ref) -> Type<'a> {
+        self.data[node.0].clone()
     }
 }
 
@@ -435,17 +442,18 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 ret,
                 block,
             } => {
-                let _ident = self.get_ident(ident)?;
+                let ident = self.get_ident(ident)?;
                 let returnty = self.term_to_ty(ret, None)?;
 
                 let function = unsafe {
-                    let return_ty = self.ctx.to_llvm(returnty);
+                    let return_ty = self.ctx.to_llvm(self.context, returnty);
                     let function_type =
                         llvm::core::LLVMFunctionType(return_ty, std::ptr::null_mut(), 0, 0);
 
+                    
                     llvm::core::LLVMAddFunction(
                         self.module,
-                        b"".as_ptr() as *const _,
+                        CString::new(ident.text).expect("Cannot convert to CString").as_ptr(),
                         function_type,
                     );
                 };
@@ -484,8 +492,8 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             None => errors.push(SemaError::NoRootNode),
         }
 
-        unsafe {
-            llvm::core::LLVMDumpModule(self.module);
+        if errors.is_empty() {
+            unsafe { llvm::core::LLVMDumpModule(self.module) };
         }
 
         errors

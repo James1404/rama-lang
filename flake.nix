@@ -26,6 +26,8 @@
               rust-analyzer
 
               llvmPackages_20.libllvm
+
+              libxml2
             ];
 
             RUST_BACKTRACE = "1";
