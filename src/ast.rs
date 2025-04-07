@@ -1,12 +1,12 @@
 use log::error;
-use strum_macros::IntoStaticStr;
+use derive_more::Display;
 
 use crate::lexer::Token;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Ref(pub usize);
 
-#[derive(Debug, Clone, IntoStaticStr)]
+#[derive(Debug, Clone)]
 pub enum Literal<'a> {
     Float(&'a str),
     Int(&'a str),
@@ -32,7 +32,7 @@ pub struct Param {
     pub ty: Ref,
 }
 
-#[derive(Debug, Clone, IntoStaticStr)]
+#[derive(Debug, Clone, strum_macros::IntoStaticStr)]
 pub enum Node<'a> {
     None,
 
@@ -153,7 +153,7 @@ pub struct AST<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ASTView<'a> {
-    data: &'a [Node<'a>],
+    pub data: &'a [Node<'a>],
     pub root: Option<Ref>,
 }
 
@@ -259,9 +259,12 @@ impl<'a> ASTView<'a> {
                 block,
             } => {
                 self.print(ident, indentation + 1);
+
+                out!(indentation + 1, "Params:");
                 for node in params {
-                    self.print(node.ident, indentation + 1);
-                    self.print(node.ty, indentation + 1);
+                    out!(indentation + 2, "Param:");
+                    self.print(node.ident, indentation + 3);
+                    self.print(node.ty, indentation + 3);
                 }
                 self.print(ret, indentation + 1);
                 self.print(block, indentation + 1);

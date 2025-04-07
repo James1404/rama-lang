@@ -1,6 +1,10 @@
 type string = [u8];
 
-fn read(filename: string) void {
+type person = struct { age: i32; };
+
+fn read(filename: string) i32 {
    const a = (25 * 2) as i32;
-   const b = a * "string";
+   const b = a * 2;
+
+   return b;
 }

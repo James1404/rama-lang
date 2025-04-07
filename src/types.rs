@@ -11,7 +11,7 @@ pub struct Field<'a> {
     pub ty: Option<TypeID>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display)]
 pub enum ADTKind {
     Struct,
     Enum,
@@ -35,36 +35,13 @@ pub enum FloatKind {
     F64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum IntKind {
-    I8,
-    I16,
-    I32,
-    I64,
-    ISize,
-
-    U8,
-    U16,
-    U32,
-    U64,
-    USize,
-}
-
-impl IntKind {
-    fn bits(self) -> u32 {
-        match self {
-            IntKind::I8 => 8,
-            IntKind::I16 => 16,
-            IntKind::I32 => 32,
-            IntKind::I64 => 64,
-            IntKind::ISize => 64,
-            IntKind::U8 => 8,
-            IntKind::U16 => 16,
-            IntKind::U32 => 32,
-            IntKind::U64 => 64,
-            IntKind::USize => 64,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub enum IntSize {
+    Bits8,
+    Bits16,
+    Bits32,
+    Bits64,
+    BitsPtr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,7 +51,10 @@ pub enum Type<'a> {
     Void,
 
     Bool,
-    Int(IntKind),
+    Int {
+        size: IntSize,
+        signed: bool,
+    },
     Float(FloatKind),
 
     Slice(TypeID),
@@ -92,8 +72,17 @@ pub enum Type<'a> {
         return_ty: TypeID,
     },
 
-    Existential,
-    Universal,
+    Ref(TypeID),
+}
+
+impl<'a> Type<'a> {
+    pub fn uint(size: IntSize) -> Type<'a> {
+        Type::Int { size, signed: false }
+    }
+
+    pub fn int(size: IntSize) -> Type<'a> {
+        Type::Int { size, signed: true }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -139,18 +128,18 @@ impl<'a> TypeContext<'a> {
             Type::Unit => todo!(),
             Type::Void => unsafe { llvm::core::LLVMVoidTypeInContext(context) },
             Type::Bool => todo!(),
-            Type::Int(kind) => unsafe {
-                match kind {
-                    IntKind::I8 => llvm::core::LLVMInt8TypeInContext(context),
-                    IntKind::I16 => llvm::core::LLVMInt16TypeInContext(context),
-                    IntKind::I32 => llvm::core::LLVMInt32TypeInContext(context),
-                    IntKind::I64 => llvm::core::LLVMInt64TypeInContext(context),
-                    IntKind::ISize => llvm::core::LLVMInt64TypeInContext(context),
-                    IntKind::U8 => llvm::core::LLVMInt8TypeInContext(context),
-                    IntKind::U16 => llvm::core::LLVMInt16TypeInContext(context),
-                    IntKind::U32 => llvm::core::LLVMInt32TypeInContext(context),
-                    IntKind::U64 => llvm::core::LLVMInt64TypeInContext(context),
-                    IntKind::USize => llvm::core::LLVMInt64TypeInContext(context),
+            Type::Int { size, signed } => unsafe {
+                match (signed, size) {
+                    (true, IntSize::Bits8) => llvm::core::LLVMInt8TypeInContext(context),
+                    (true, IntSize::Bits16) => llvm::core::LLVMInt16TypeInContext(context),
+                    (true, IntSize::Bits32) => llvm::core::LLVMInt32TypeInContext(context),
+                    (true, IntSize::Bits64) => llvm::core::LLVMInt64TypeInContext(context),
+                    (true, IntSize::BitsPtr) => llvm::core::LLVMInt64TypeInContext(context),
+                    (false, IntSize::Bits8) => llvm::core::LLVMInt8TypeInContext(context),
+                    (false, IntSize::Bits16) => llvm::core::LLVMInt16TypeInContext(context),
+                    (false, IntSize::Bits32) => llvm::core::LLVMInt32TypeInContext(context),
+                    (false, IntSize::Bits64) => llvm::core::LLVMInt64TypeInContext(context),
+                    (false, IntSize::BitsPtr) => llvm::core::LLVMInt64TypeInContext(context),
                 }
             },
             Type::Float(kind) => unsafe {
@@ -174,8 +163,7 @@ impl<'a> TypeContext<'a> {
                 parameters,
                 return_ty,
             } => todo!(),
-            Type::Existential => todo!(),
-            Type::Universal => todo!(),
+            Type::Ref(ty) => todo!(),
         }
     }
 }
@@ -193,20 +181,16 @@ impl<'a> Display for TypeFmt<'a> {
 
             Type::Void => write!(f, "void"),
             Type::Bool => write!(f, "bool"),
-            Type::Int(int_kind) => write!(
+            Type::Int { size, signed } => write!(
                 f,
-                "{}",
-                match int_kind {
-                    IntKind::I8 => "i8",
-                    IntKind::I16 => "i16",
-                    IntKind::I32 => "i32",
-                    IntKind::I64 => "i64",
-                    IntKind::ISize => "isize",
-                    IntKind::U8 => "u8",
-                    IntKind::U16 => "u16",
-                    IntKind::U32 => "u32",
-                    IntKind::U64 => "u64",
-                    IntKind::USize => "usize",
+                "{}{}",
+                if signed { "i" } else { "u" },
+                match size {
+                    IntSize::Bits8 => "i8",
+                    IntSize::Bits16 => "i16",
+                    IntSize::Bits32 => "i32",
+                    IntSize::Bits64 => "i64",
+                    IntSize::BitsPtr => "isize",
                 }
             ),
             Type::Float(float_kind) => write!(
@@ -219,17 +203,35 @@ impl<'a> Display for TypeFmt<'a> {
             ),
             Type::Slice(inner) => write!(f, "[{}]", self.ctx.display(inner)),
             Type::Array { inner, len } => write!(f, "[{}; {}]", self.ctx.display(inner), len),
-            Type::ADT(adt) => todo!(),
+            Type::ADT(adt) => {
+                write!(f, "{} {{", adt.kind)?;
+                for field in adt.fields {
+                    write!(f, "{}", field.ident)?;
+                    if let Some(ty) = field.ty {
+                        write!(f, ": {}", self.ctx.display(ty))?;
+                    }
+                    write!(f, ",")?;
+                }
+                write!(f, "}}")
+            }
             Type::Ptr(inner) => write!(f, "*{}", self.ctx.display(inner)),
             Type::Fn {
                 parameters,
                 return_ty,
             } => {
                 f.write_str("fn(")?;
+                let mut iter = parameters.iter().peekable();
+                while let Some(param) = iter.next() {
+                    write!(f, "{}", self.ctx.display(*param))?;
+
+                    if !iter.peek().is_none() {
+                        f.write_str(", ")?;
+                    }
+                }
+
                 write!(f, ") {}", self.ctx.display(return_ty))
             }
-            Type::Existential => todo!(),
-            Type::Universal => todo!(),
+            Type::Ref(ty) => write!(f, "Ref({}, {})", ty.0, self.ctx.display(ty)),
         }
     }
 }

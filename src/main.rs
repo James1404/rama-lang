@@ -1,4 +1,4 @@
-use std::{fs, io, path::Path};
+use std::{fmt::Debug, fs, io, path::Path};
 
 use clap_complete::{Generator, Shell, generate};
 use lexer::Lexer;
@@ -9,13 +9,13 @@ use clap::{Command, Parser as ClapParser, Subcommand};
 use sema::{Sema, SemaError};
 
 mod ast;
+mod backend;
 mod lexer;
 mod parser;
 mod sema;
 mod tir;
-mod types;
 mod typed_ast;
-mod backend;
+mod types;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]
@@ -26,17 +26,19 @@ struct Cli {
     generator: Option<Shell>,
     #[command(subcommand)]
     command: Option<Commands>,
+    
+    #[arg(long)]
+    print_tokens: bool,
+    #[arg(long)]
+    print_ast: bool,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    Test {
-        #[arg(short, long)]
-        verbose: bool,
-    },
+    Test,
 }
 
-fn compile<P>(path: P, verbose: bool) -> io::Result<()>
+fn compile<P>(path: P, cli: &Cli) -> io::Result<()>
 where
     P: AsRef<Path>,
 {
@@ -45,7 +47,7 @@ where
     let lexer = Lexer::new(&src);
     let tokens = lexer.run();
 
-    if verbose {
+    if cli.print_tokens {
         println!("<== Printing Tokens ==>");
         for tok in &tokens {
             println!("{}: \"{}\"", Into::<&'static str>::into(&tok.ty), tok.text);
@@ -57,13 +59,16 @@ where
     let ast = match parser.run() {
         Ok(ast) => ast,
         Err(err) => {
-            error!("[{}; {}] {}", err.token.pos.line, err.token.pos.start, err.msg);
+            error!(
+                "[{}; {}] {}",
+                err.token.pos.line, err.token.pos.start, err.msg
+            );
             return Ok(());
         }
     };
     let astview = ast.to_view();
 
-    if verbose {
+    if cli.print_ast {
         astview.pretty_print();
     }
 
@@ -74,13 +79,15 @@ where
         println!("Error: {}", error);
     }
 
+    tast.print();
+
     let mut backend = backend::llvm::Codegen::new(tast);
     backend.run();
 
     Ok(())
 }
 
-fn tests(verbose: bool) -> io::Result<()> {
+fn tests(cli: &Cli) -> io::Result<()> {
     let paths = fs::read_dir("./test")?;
     let paths = paths.into_iter().flatten().collect::<Vec<fs::DirEntry>>();
 
@@ -89,7 +96,9 @@ fn tests(verbose: bool) -> io::Result<()> {
 
         if path.is_file() {
             println!("<=== Running test {} \"{}\" ===>", idx, path.display());
-            compile(path, verbose)?;
+            compile(&path, cli)?;
+            println!("<=== Ending Test \"{}\" ===>", path.display());
+            println!();
         }
     }
 
@@ -112,8 +121,8 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Test { verbose }) => {
-            tests(*verbose)?;
+        Some(Commands::Test) => {
+            tests(&cli)?;
         }
         None => {}
     }

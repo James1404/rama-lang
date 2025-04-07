@@ -589,7 +589,16 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             TokenType::Return => {
                 self.cursor.advance();
                 let expr = self.parse_expr()?;
-                Ok(self.alloc(Node::Return(expr)))
+                
+                return if self.cursor.advance_if(TokenType::Semicolon) {
+                    Ok(self.alloc(Node::Return(expr)))
+                } else {
+                    Err(ParserError {
+                        msg: "Expected semicolon after return statement".to_owned(),
+                        token,
+                    })
+                };
+
             }
             TokenType::Defer => {
                 self.cursor.advance();

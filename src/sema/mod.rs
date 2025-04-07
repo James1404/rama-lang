@@ -4,13 +4,11 @@ pub mod error;
 mod frame;
 mod scope;
 
-use std::ffi::{CStr, CString};
-
 use crate::{
-    ast::{self, ASTView, EnumVariant, Literal, Node, Ref},
+    ast::{ASTView, Literal, Node, Ref},
     lexer::{Token, TokenType},
     typed_ast::{TypeMetadata, TypedAST},
-    types::{ADT, ADTKind, Field, FloatKind, IntKind, Type, TypeContext, TypeID},
+    types::{ADT, ADTKind, Field, FloatKind, IntSize, Type, TypeContext, TypeID},
 };
 
 pub use error::{Result, SemaError};
@@ -42,7 +40,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
     fn subtype(&self, lhs: TypeID, rhs: TypeID) -> bool {
         match (self.ctx.get(lhs), self.ctx.get(rhs)) {
-            (Type::Int(_), Type::Int(_)) => true,
+            (Type::Int { .. }, Type::Int { .. }) => true,
             (Type::Float(_), Type::Float(_)) => true,
             (Type::Bool, Type::Bool) => true,
             (Type::Slice(t1), Type::Slice(t2)) => self.subtype(t1, t2),
@@ -55,7 +53,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         let t2 = self.infer(rterm)?;
 
         match (self.ctx.get(t1), self.ctx.get(t2)) {
-            (Type::Int(_), Type::Int(_)) => Ok(t1),
+            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
                 "Cannot add types {} and {}",
@@ -70,7 +68,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         let t2 = self.infer(rterm)?;
 
         match (self.ctx.get(t1), self.ctx.get(t2)) {
-            (Type::Int(_), Type::Int(_)) => Ok(t1),
+            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
                 "Cannot subtract types {} and {}",
@@ -85,7 +83,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         let t2 = self.infer(rterm)?;
 
         match (self.ctx.get(t1), self.ctx.get(t2)) {
-            (Type::Int(_), Type::Int(_)) => Ok(t1),
+            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
                 "Cannot multiply types {} and {}",
@@ -100,7 +98,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         let t2 = self.infer(rterm)?;
 
         match (self.ctx.get(t1), self.ctx.get(t2)) {
-            (Type::Int(_), Type::Int(_)) => Ok(t1),
+            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
                 "Cannot divide types {} and {}",
@@ -113,6 +111,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
     fn check(&mut self, term: Ref, against: TypeID) -> Result<'ast, TypeID> {
         let ty = self.infer(term)?;
         if self.subtype(ty, against) {
+            self.metadata.set(term, ty);
             Ok(ty)
         } else {
             Err(SemaError::InvalidType)
@@ -120,7 +119,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
     }
 
     fn infer(&mut self, term: Ref) -> Result<'ast, TypeID> {
-        match self.ast.get(term) {
+        let ty = match self.ast.get(term) {
             Node::Binary { lhs, rhs, op } => match op.ty {
                 TokenType::Plus => self.add(lhs, rhs),
                 TokenType::Minus => self.sub(lhs, rhs),
@@ -134,10 +133,10 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             },
 
             Node::Literal(lit) => match lit {
-                Literal::String(value) => {
-                    Ok(self.ctx.alloc_array(Type::Int(IntKind::U8), value.len()))
-                }
-                Literal::Int(_) => Ok(self.ctx.alloc(Type::Int(IntKind::I32))),
+                Literal::String(value) => Ok(self
+                    .ctx
+                    .alloc_array(Type::uint(IntSize::Bits8), value.len())),
+                Literal::Int(_) => Ok(self.ctx.alloc(Type::int(IntSize::Bits32))),
                 Literal::Float(_) => Ok(self.ctx.alloc(Type::Float(FloatKind::F32))),
                 Literal::Bool(_) => Ok(self.ctx.alloc(Type::Bool)),
             },
@@ -189,15 +188,21 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             }
 
             _ => Err(SemaError::InvalidTerm(term)),
+        };
+
+        if let Ok(ty) = ty {
+            self.metadata.set(term, ty);
         }
+
+        ty
     }
 
     fn can_cast(&self, from: TypeID, into: TypeID) -> bool {
         match (self.ctx.get(from), self.ctx.get(into)) {
-            (Type::Int(_), Type::Int(_)) => true,
+            (Type::Int { .. }, Type::Int { .. }) => true,
             (Type::Float(_), Type::Float(_)) => true,
-            (Type::Int(_), Type::Float(_)) => true,
-            (Type::Float(_), Type::Int(_)) => true,
+            (Type::Int { .. }, Type::Float(_)) => true,
+            (Type::Float(_), Type::Int { .. }) => true,
             (
                 Type::Array {
                     inner: frominner,
@@ -215,7 +220,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
     }
 
     fn term_to_ty(&mut self, term: Ref, _arguments: Option<Vec<Ref>>) -> Result<'ast, TypeID> {
-        match self.ast.get(term) {
+        let ty = match self.ast.get(term) {
             Node::StructType(fields) => {
                 let mut adt_fields = Vec::<Field>::new();
                 for node in fields {
@@ -231,7 +236,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                     generic_args: vec![],
                 };
 
-                Ok(self.ctx.alloc(Type::ADT(adt)))
+                self.ctx.alloc(Type::ADT(adt))
             }
             Node::EnumType(variants) => {
                 let mut adt_fields = Vec::<Field>::new();
@@ -252,48 +257,51 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                     generic_args: vec![],
                 };
 
-                Ok(self.ctx.alloc(Type::ADT(adt)))
+                self.ctx.alloc(Type::ADT(adt))
             }
             Node::PtrType(inner) => {
                 let inner = self.term_to_ty(inner, None)?;
-                Ok(self.ctx.alloc(Type::Ptr(inner)))
+                self.ctx.alloc(Type::Ptr(inner))
             }
             Node::SliceType(inner) => {
                 let inner = self.term_to_ty(inner, None)?;
-                Ok(self.ctx.alloc(Type::Slice(inner)))
+                self.ctx.alloc(Type::Slice(inner))
             }
             Node::ArrayType(inner, len) => {
                 let inner = self.term_to_ty(inner, None)?;
-                Ok(self.ctx.alloc(Type::Array { inner, len }))
+                self.ctx.alloc(Type::Array { inner, len })
             }
 
             Node::Ident(token) => match token.text {
-                "void" => Ok(self.ctx.alloc(Type::Void)),
+                "void" => self.ctx.alloc(Type::Void),
 
-                "i8" => Ok(self.ctx.alloc(Type::Int(IntKind::I8))),
-                "i16" => Ok(self.ctx.alloc(Type::Int(IntKind::I16))),
-                "i32" => Ok(self.ctx.alloc(Type::Int(IntKind::I32))),
-                "i64" => Ok(self.ctx.alloc(Type::Int(IntKind::I64))),
-                "isize" => Ok(self.ctx.alloc(Type::Int(IntKind::ISize))),
+                "i8" => self.ctx.alloc(Type::int(IntSize::Bits8)),
+                "i16" => self.ctx.alloc(Type::int(IntSize::Bits16)),
+                "i32" => self.ctx.alloc(Type::int(IntSize::Bits32)),
+                "i64" => self.ctx.alloc(Type::int(IntSize::Bits64)),
+                "isize" => self.ctx.alloc(Type::int(IntSize::BitsPtr)),
 
-                "u8" => Ok(self.ctx.alloc(Type::Int(IntKind::U8))),
-                "u16" => Ok(self.ctx.alloc(Type::Int(IntKind::U16))),
-                "u32" => Ok(self.ctx.alloc(Type::Int(IntKind::U32))),
-                "u64" => Ok(self.ctx.alloc(Type::Int(IntKind::U64))),
-                "usize" => Ok(self.ctx.alloc(Type::Int(IntKind::USize))),
+                "u8" => self.ctx.alloc(Type::uint(IntSize::Bits8)),
+                "u16" => self.ctx.alloc(Type::uint(IntSize::Bits16)),
+                "u32" => self.ctx.alloc(Type::uint(IntSize::Bits32)),
+                "u64" => self.ctx.alloc(Type::uint(IntSize::Bits64)),
+                "usize" => self.ctx.alloc(Type::uint(IntSize::BitsPtr)),
 
-                "f32" => Ok(self.ctx.alloc(Type::Float(FloatKind::F32))),
-                "f64" => Ok(self.ctx.alloc(Type::Float(FloatKind::F64))),
+                "f32" => self.ctx.alloc(Type::Float(FloatKind::F32)),
+                "f64" => self.ctx.alloc(Type::Float(FloatKind::F64)),
 
-                "bool" => Ok(self.ctx.alloc(Type::Bool)),
+                "bool" => self.ctx.alloc(Type::Bool),
 
                 text => match self.scopes.get(text) {
-                    Some(Def::Type(ty)) => Ok(ty),
-                    _ => Err(SemaError::NotDefined(token)),
+                    Some(Def::Type(ty)) => self.ctx.alloc(Type::Ref(ty)),
+                    _ => return Err(SemaError::NotDefined(token)),
                 },
             },
-            _ => Err(SemaError::InvalidTerm(term)),
-        }
+            _ => return Err(SemaError::InvalidTerm(term)),
+        };
+
+        self.metadata.set(term, ty);
+        Ok(ty)
     }
 
     fn get_ident(&self, node: Ref) -> Result<'ast, Token<'ast>> {
@@ -316,6 +324,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
                 let ident = self.get_ident(ident)?;
                 self.scopes.push(ident.text, Def::Var(ty));
+                self.metadata.set(node, ty);
             }
             Node::ConstDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
@@ -330,6 +339,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
                 let ident = self.get_ident(ident)?;
                 self.scopes.push(ident.text, Def::Const(ty));
+                self.metadata.set(node, ty);
             }
 
             Node::Scope(lst) => {
@@ -346,6 +356,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 }?;
 
                 self.check(value, ty)?;
+                self.metadata.set(node, ty);
             }
 
             Node::Return(value) => {
@@ -356,6 +367,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 match frame.return_type {
                     Some(return_type) => {
                         self.check(value, return_type)?;
+                        self.metadata.set(node, return_type);
                     }
                     None => return Err(SemaError::FunctionDoesNotHaveReturnType),
                 }
@@ -457,13 +469,6 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             None => errors.push(SemaError::NoRootNode),
         }
 
-        (
-            TypedAST {
-                ast: self.ast,
-                meta: self.metadata,
-                context: self.ctx,
-            },
-            errors,
-        )
+        (TypedAST::new(self.ast, self.metadata, self.ctx), errors)
     }
 }
