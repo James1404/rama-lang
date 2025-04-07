@@ -24,9 +24,12 @@
 
               rust-bin.stable.latest.default
               rust-analyzer
+
+              llvmPackages_20.libllvm
             ];
 
             RUST_BACKTRACE = "1";
+            LLVM_SYS_201_PREFIX = "${pkgs.llvmPackages_20.libllvm.dev}";
           });
         }
       );

@@ -14,7 +14,6 @@ pub enum Literal<'a> {
     Bool(bool),
 }
 
-
 #[derive(Debug, Clone)]
 pub struct StructField {
     pub ident: Ref,
@@ -110,6 +109,7 @@ pub enum Node<'a> {
         args: Vec<Ref>,
         body: Ref,
     },
+
     StructType(Vec<StructField>),
     EnumType(Vec<EnumVariant>),
 
@@ -182,6 +182,10 @@ impl<'a> AST<'a> {
 impl<'a> ASTView<'a> {
     pub fn get(self, handle: Ref) -> Node<'a> {
         self.data[handle.0].clone()
+    }
+
+    pub fn len(self) -> usize {
+        self.data.len()
     }
 
     fn print(self, handle: Ref, indentation: usize) {

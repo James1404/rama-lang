@@ -6,7 +6,7 @@ mod scope;
 mod types;
 
 use crate::{
-    ast::{self, ASTView, EnumVariant, Literal, Node},
+    ast::{self, ASTView, EnumVariant, Literal, Node, Ref},
     lexer::{Token, TokenType},
 };
 
@@ -16,21 +16,64 @@ use log::info;
 use scope::{Def, Scope};
 use types::{ADT, ADTKind, Field, FloatKind, IntKind, Type, TypeContext, TypeID};
 
+extern crate llvm_sys as llvm;
+
+pub struct TypedAST<'a> {
+    data: Vec<Type<'a>>,
+    pub root: Option<Ref>,
+}
+
+impl<'a> TypedAST<'a> {
+    fn new(ast: &ASTView) -> Self {
+        Self {
+            data: (0..ast.len()).map(|_| Type::Unit).collect::<Vec<Type>>(),
+            root: None,
+        }
+    }
+}
+
 pub struct Sema<'ast: 'tcx, 'tcx> {
     ast: ASTView<'ast>,
     scopes: Scope<'ast>,
 
     ctx: TypeContext<'tcx>,
     callstack: Vec<Frame>,
+
+    tast: TypedAST<'tcx>,
+
+    context: *mut llvm::LLVMContext,
+    module: *mut llvm::LLVMModule,
+    builder: *mut llvm::LLVMBuilder,
+}
+
+impl<'ast, 'tcx> Drop for Sema<'ast, 'tcx> {
+    fn drop(&mut self) {
+        unsafe {
+            llvm::core::LLVMDisposeBuilder(self.builder);
+            llvm::core::LLVMDisposeModule(self.module);
+            llvm::core::LLVMContextDispose(self.context);
+        }
+    }
 }
 
 impl<'ast, 'tcx> Sema<'ast, 'tcx> {
     pub fn new(ast: ASTView<'ast>) -> Self {
+        let context = unsafe { llvm::core::LLVMContextCreate() };
+        let module =
+            unsafe { llvm::core::LLVMModuleCreateWithName(b"test\0".as_ptr() as *const _) };
+        let builder = unsafe { llvm::core::LLVMCreateBuilderInContext(context) };
+
         Self {
             ast,
             ctx: TypeContext::new(),
             scopes: Scope::new(),
             callstack: vec![],
+
+            tast: TypedAST::new(&ast),
+
+            context,
+            module,
+            builder,
         }
     }
 
@@ -44,7 +87,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         }
     }
 
-    fn add(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
+    fn add(&mut self, lterm: Ref, rterm: Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.infer(rterm)?;
 
@@ -59,7 +102,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         }
     }
 
-    fn sub(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
+    fn sub(&mut self, lterm: Ref, rterm: Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.infer(rterm)?;
 
@@ -74,7 +117,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         }
     }
 
-    fn mul(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
+    fn mul(&mut self, lterm: Ref, rterm: Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.infer(rterm)?;
 
@@ -89,7 +132,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         }
     }
 
-    fn div(&mut self, lterm: ast::Ref, rterm: ast::Ref) -> Result<'ast, TypeID> {
+    fn div(&mut self, lterm: Ref, rterm: Ref) -> Result<'ast, TypeID> {
         let t1 = self.infer(lterm)?;
         let t2 = self.infer(rterm)?;
 
@@ -104,7 +147,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         }
     }
 
-    fn check(&mut self, term: ast::Ref, against: TypeID) -> Result<'ast, TypeID> {
+    fn check(&mut self, term: Ref, against: TypeID) -> Result<'ast, TypeID> {
         let ty = self.infer(term)?;
         if self.subtype(ty, against) {
             Ok(ty)
@@ -113,7 +156,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         }
     }
 
-    fn infer(&mut self, term: ast::Ref) -> Result<'ast, TypeID> {
+    fn infer(&mut self, term: Ref) -> Result<'ast, TypeID> {
         match self.ast.get(term) {
             Node::Binary { lhs, rhs, op } => match op.ty {
                 TokenType::Plus => self.add(lhs, rhs),
@@ -208,11 +251,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         }
     }
 
-    fn term_to_ty(
-        &mut self,
-        term: ast::Ref,
-        _arguments: Option<Vec<ast::Ref>>,
-    ) -> Result<'ast, TypeID> {
+    fn term_to_ty(&mut self, term: Ref, _arguments: Option<Vec<Ref>>) -> Result<'ast, TypeID> {
         match self.ast.get(term) {
             Node::StructType(fields) => {
                 let mut adt_fields = Vec::<Field>::new();
@@ -294,14 +333,14 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         }
     }
 
-    fn get_ident(&self, node: ast::Ref) -> Result<'ast, Token<'ast>> {
+    fn get_ident(&self, node: Ref) -> Result<'ast, Token<'ast>> {
         match self.ast.get(node) {
             Node::Ident(token) => Ok(token),
             _ => Err(SemaError::InvalidTerm(node)),
         }
     }
 
-    fn eval(&mut self, node: ast::Ref) -> Result<'ast, ()> {
+    fn eval(&mut self, node: Ref) -> Result<'ast, ()> {
         match self.ast.get(node) {
             Node::VarDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
@@ -364,7 +403,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         Ok(())
     }
 
-    fn eval_toplevel(&mut self, node: ast::Ref) -> Result<'ast, ()> {
+    fn eval_toplevel(&mut self, node: Ref) -> Result<'ast, ()> {
         match self.ast.get(node) {
             Node::VarDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
@@ -399,6 +438,18 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 let _ident = self.get_ident(ident)?;
                 let returnty = self.term_to_ty(ret, None)?;
 
+                let function = unsafe {
+                    let return_ty = self.ctx.to_llvm(returnty);
+                    let function_type =
+                        llvm::core::LLVMFunctionType(return_ty, std::ptr::null_mut(), 0, 0);
+
+                    llvm::core::LLVMAddFunction(
+                        self.module,
+                        b"".as_ptr() as *const _,
+                        function_type,
+                    );
+                };
+
                 self.callstack.push(Frame {
                     return_type: Some(returnty),
                 });
@@ -416,7 +467,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         Ok(())
     }
 
-    pub fn run(&'tcx mut self) -> Vec<SemaError<'ast>> {
+    pub fn run(mut self) -> Vec<SemaError<'ast>> {
         let mut errors: Vec<SemaError<'ast>> = vec![];
 
         match self.ast.root {
@@ -431,6 +482,10 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 _ => errors.push(SemaError::InvalidRootNode(node)),
             },
             None => errors.push(SemaError::NoRootNode),
+        }
+
+        unsafe {
+            llvm::core::LLVMDumpModule(self.module);
         }
 
         errors
