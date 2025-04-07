@@ -13,6 +13,9 @@ mod lexer;
 mod parser;
 mod sema;
 mod tir;
+mod types;
+mod typed_ast;
+mod backend;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]
@@ -65,11 +68,14 @@ where
     }
 
     let mut sema = Sema::new(astview);
-    let errors = sema.run();
+    let (tast, errors) = sema.run();
 
     for error in errors {
         println!("Error: {}", error);
     }
+
+    let mut backend = backend::llvm::Codegen::new(tast);
+    backend.run();
 
     Ok(())
 }

@@ -3,41 +3,20 @@
 pub mod error;
 mod frame;
 mod scope;
-mod types;
 
 use std::ffi::{CStr, CString};
 
 use crate::{
     ast::{self, ASTView, EnumVariant, Literal, Node, Ref},
     lexer::{Token, TokenType},
+    typed_ast::{TypeMetadata, TypedAST},
+    types::{ADT, ADTKind, Field, FloatKind, IntKind, Type, TypeContext, TypeID},
 };
 
 pub use error::{Result, SemaError};
 use frame::Frame;
 use log::info;
 use scope::{Def, Scope};
-use types::{ADT, ADTKind, Field, FloatKind, IntKind, Type, TypeContext, TypeID};
-
-extern crate llvm_sys as llvm;
-
-#[derive(Debug, Clone)]
-pub struct TypedAST<'a> {
-    data: Vec<Type<'a>>,
-    pub root: Option<Ref>,
-}
-
-impl<'a> TypedAST<'a> {
-    fn new(ast: &ASTView) -> Self {
-        Self {
-            data: (0..ast.len()).map(|_| Type::Unit).collect::<Vec<Type>>(),
-            root: None,
-        }
-    }
-
-    pub fn get(&self, node: Ref) -> Type<'a> {
-        self.data[node.0].clone()
-    }
-}
 
 pub struct Sema<'ast: 'tcx, 'tcx> {
     ast: ASTView<'ast>,
@@ -46,41 +25,18 @@ pub struct Sema<'ast: 'tcx, 'tcx> {
     ctx: TypeContext<'tcx>,
     callstack: Vec<Frame>,
 
-    tast: TypedAST<'tcx>,
-
-    context: *mut llvm::LLVMContext,
-    module: *mut llvm::LLVMModule,
-    builder: *mut llvm::LLVMBuilder,
-}
-
-impl<'ast, 'tcx> Drop for Sema<'ast, 'tcx> {
-    fn drop(&mut self) {
-        unsafe {
-            llvm::core::LLVMDisposeBuilder(self.builder);
-            llvm::core::LLVMDisposeModule(self.module);
-            llvm::core::LLVMContextDispose(self.context);
-        }
-    }
+    metadata: TypeMetadata,
 }
 
 impl<'ast, 'tcx> Sema<'ast, 'tcx> {
     pub fn new(ast: ASTView<'ast>) -> Self {
-        let context = unsafe { llvm::core::LLVMContextCreate() };
-        let module =
-            unsafe { llvm::core::LLVMModuleCreateWithName(b"test\0".as_ptr() as *const _) };
-        let builder = unsafe { llvm::core::LLVMCreateBuilderInContext(context) };
-
         Self {
             ast,
             ctx: TypeContext::new(),
             scopes: Scope::new(),
             callstack: vec![],
 
-            tast: TypedAST::new(&ast),
-
-            context,
-            module,
-            builder,
+            metadata: TypeMetadata::new(ast),
         }
     }
 
@@ -423,6 +379,8 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
                 let ident = self.get_ident(ident)?;
                 self.scopes.push(ident.text, Def::Var(ty));
+
+                self.metadata.set(node, ty);
             }
             Node::ConstDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
@@ -435,39 +393,46 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
                 let ident = self.get_ident(ident)?;
                 self.scopes.push(ident.text, Def::Const(ty));
+
+                self.metadata.set(node, ty);
             }
             Node::FnDecl {
                 ident,
-                params: _,
+                params,
                 ret,
                 block,
             } => {
                 let ident = self.get_ident(ident)?;
                 let returnty = self.term_to_ty(ret, None)?;
 
-                let function = unsafe {
-                    let return_ty = self.ctx.to_llvm(self.context, returnty);
-                    let function_type =
-                        llvm::core::LLVMFunctionType(return_ty, std::ptr::null_mut(), 0, 0);
+                let parameters = {
+                    let mut vec = Vec::<TypeID>::new();
+                    for param in params {
+                        vec.push(self.term_to_ty(param.ty, None)?);
+                    }
 
-                    
-                    llvm::core::LLVMAddFunction(
-                        self.module,
-                        CString::new(ident.text).expect("Cannot convert to CString").as_ptr(),
-                        function_type,
-                    );
+                    vec
                 };
+
+                let ty = self.ctx.alloc(Type::Fn {
+                    parameters,
+                    return_ty: returnty,
+                });
 
                 self.callstack.push(Frame {
                     return_type: Some(returnty),
                 });
                 self.eval(block)?;
+
+                self.metadata.set(node, ty);
             }
             Node::Type { ident, args, body } => {
                 let ident = self.get_ident(ident)?;
                 let ty = self.term_to_ty(body, Some(args))?;
 
                 self.scopes.push(ident.text, Def::Type(ty));
+
+                self.metadata.set(node, ty);
             }
             _ => {}
         }
@@ -475,7 +440,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         Ok(())
     }
 
-    pub fn run(mut self) -> Vec<SemaError<'ast>> {
+    pub fn run(mut self) -> (TypedAST<'tcx>, Vec<SemaError<'ast>>) {
         let mut errors: Vec<SemaError<'ast>> = vec![];
 
         match self.ast.root {
@@ -492,10 +457,13 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             None => errors.push(SemaError::NoRootNode),
         }
 
-        if errors.is_empty() {
-            unsafe { llvm::core::LLVMDumpModule(self.module) };
-        }
-
-        errors
+        (
+            TypedAST {
+                ast: self.ast,
+                meta: self.metadata,
+                context: self.ctx,
+            },
+            errors,
+        )
     }
 }

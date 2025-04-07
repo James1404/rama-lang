@@ -3,7 +3,7 @@ use std::fmt::{Display, Write};
 extern crate llvm_sys as llvm;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TypeID(usize);
+pub struct TypeID(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Field<'a> {

@@ -1,4 +1,4 @@
-use crate::sema::types::TypeID;
+use crate::types::TypeID;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Frame {

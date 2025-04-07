@@ -14,16 +14,22 @@ pub enum Literal<'a> {
     Bool(bool),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct StructField {
     pub ident: Ref,
     pub ty: Ref,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct EnumVariant {
     pub ident: Ref,
     pub ty: Option<Ref>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Param {
+    pub ident: Ref,
+    pub ty: Ref,
 }
 
 #[derive(Debug, Clone, IntoStaticStr)]
@@ -62,15 +68,9 @@ pub enum Node<'a> {
         value: Ref,
     },
 
-    ParameterList(Vec<Ref>),
-    Paramater {
-        ident: Ref,
-        ty: Ref,
-    },
-
     FnDecl {
         ident: Ref,
-        params: Ref,
+        params: Vec<Param>,
         ret: Ref,
         block: Ref,
     },
@@ -251,15 +251,7 @@ impl<'a> ASTView<'a> {
                 self.print(ident, indentation + 1);
                 self.print(value, indentation + 1);
             }
-            Node::ParameterList(items) => {
-                for node in items {
-                    self.print(node, indentation + 1);
-                }
-            }
-            Node::Paramater { ident, ty } => {
-                self.print(ident, indentation + 1);
-                self.print(ty, indentation + 1);
-            }
+
             Node::FnDecl {
                 ident,
                 params,
@@ -267,7 +259,10 @@ impl<'a> ASTView<'a> {
                 block,
             } => {
                 self.print(ident, indentation + 1);
-                self.print(params, indentation + 1);
+                for node in params {
+                    self.print(node.ident, indentation + 1);
+                    self.print(node.ty, indentation + 1);
+                }
                 self.print(ret, indentation + 1);
                 self.print(block, indentation + 1);
             }
@@ -342,7 +337,7 @@ impl<'a> ASTView<'a> {
             }
             Node::DistinctType(value) => self.print(value, indentation + 1),
             Node::PtrType(value) => self.print(value, indentation + 1),
-            Node::SliceType(value) =>self.print(value, indentation + 1),
+            Node::SliceType(value) => self.print(value, indentation + 1),
             Node::ArrayType(value, len) => {
                 self.print(value, indentation + 1);
                 out!(indentation + 1, "len: {}", len);

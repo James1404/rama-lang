@@ -1,4 +1,4 @@
-use crate::sema::types::TypeID;
+use crate::types::TypeID;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]

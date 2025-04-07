@@ -3,8 +3,8 @@ use std::result;
 use log::error;
 
 use crate::{
-    ast::{self, AST, Node, Ref},
-    lexer::{Token, TokenType, precedence},
+    ast::{self, Node, Param, Ref, AST},
+    lexer::{precedence, Token, TokenType},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -662,7 +662,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 });
             }
 
-            let mut params = Vec::<Ref>::new();
+            let mut params = Vec::<Param>::new();
 
             loop {
                 if self.cursor.matches(TokenType::RParen) {
@@ -685,7 +685,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 }
 
                 let ty = self.parse_type_expr()?;
-                params.push(self.alloc(Node::Paramater { ident, ty }));
+                params.push(Param { ident, ty });
 
                 if !self.cursor.advance_if(TokenType::Comma) {
                     break;
@@ -710,7 +710,6 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
             let block = self.parse_scope()?;
 
-            let params = self.alloc(Node::ParameterList(params));
             return Ok(self.alloc(Node::FnDecl {
                 ident,
                 params,

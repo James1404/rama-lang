@@ -2,7 +2,7 @@ use std::{fmt::Display, result};
 
 use crate::{
     ast,
-    sema::types::TypeID,
+    types::TypeID,
     lexer::{Token, TokenType},
 };
 
