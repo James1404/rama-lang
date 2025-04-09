@@ -2,20 +2,29 @@
 
 pub mod error;
 mod frame;
-mod scope;
 
 use crate::{
     ast::{ASTView, Literal, Node, Ref},
     lexer::{Token, TokenType},
+    tir::{TIRGen, TIR},
     typed_ast::{TypeMetadata, TypedAST},
-    types::{ADT, ADTKind, Field, FloatKind, IntSize, Type, TypeContext, TypeID},
+    types::{ADTKind, Field, FloatKind, IntSize, Type, TypeContext, TypeID, ADT}, valuescope::ScopeArena,
 };
 
 pub use error::{Result, SemaError};
 use frame::Frame;
-use itertools::{izip, Itertools};
+use itertools::{Itertools, izip};
 use log::info;
-use scope::{Def, Scope};
+
+#[derive(Debug, Clone)]
+enum Def {
+    Const(TypeID),
+    Var(TypeID),
+    Fn(TypeID),
+    Type(TypeID),
+}
+
+type Scope<'a> = ScopeArena<'a, Def>;
 
 pub struct Sema<'ast> {
     ast: ASTView<'ast>,
@@ -24,18 +33,19 @@ pub struct Sema<'ast> {
     ctx: TypeContext<'ast>,
     callstack: Vec<Frame>,
 
-    metadata: TypeMetadata,
+    tir: TIRGen<'ast>,
 }
 
 impl<'ast> Sema<'ast> {
     pub fn new(ast: ASTView<'ast>) -> Self {
+        let ctx = TypeContext::new();
+
         Self {
             ast,
-            ctx: TypeContext::new(),
+            ctx,
             scopes: Scope::new(),
             callstack: vec![],
-
-            metadata: TypeMetadata::new(ast),
+            tir: TIRGen::new(),
         }
     }
 
@@ -193,17 +203,20 @@ impl<'ast> Sema<'ast> {
                 let field = self.get_ident(field)?;
 
                 match self.ctx.get(ty) {
-                    Type::ADT(ADT { kind, fields, generic_args }) => {
+                    Type::ADT(ADT {
+                        kind,
+                        fields,
+                        generic_args,
+                    }) => {
                         if let Some(field) = fields.iter().find(|f| f.ident == field) {
                             Ok(field.ty.unwrap())
-                        }
-                        else {
+                        } else {
                             panic!("Doesnt have field")
                         }
-                    },
-                    _ => panic!("Fixme")
+                    }
+                    _ => panic!("Fixme"),
                 }
-            },
+            }
 
             Node::FnCall { func, args } => {
                 let func = self.infer(func)?;
@@ -540,7 +553,7 @@ impl<'ast> Sema<'ast> {
         Ok(())
     }
 
-    pub fn run(mut self) -> (TypedAST<'ast>, Vec<SemaError<'ast>>) {
+    pub fn run(mut self) -> (TIR<'ast>, Vec<SemaError<'ast>>) {
         let mut errors: Vec<SemaError> = vec![];
 
         match self.ast.root {
@@ -557,6 +570,6 @@ impl<'ast> Sema<'ast> {
             None => errors.push(SemaError::NoRootNode),
         }
 
-        (TypedAST::new(self.ast, self.metadata, self.ctx), errors)
+        (TIR::new(self.tir, self.ctx), errors)
     }
 }

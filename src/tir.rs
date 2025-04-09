@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use derive_more::Display;
-use typed_index_collections::{TiVec, ti_vec};
+use typed_index_collections::{TiSlice, TiVec, ti_vec};
 
 use crate::types::{FnType, TypeContext, TypeID};
 
@@ -166,17 +166,31 @@ pub struct Func<'a> {
     pub block: CFG<'a>,
 }
 
-pub struct TIR<'a> {
-    pub ctx: TypeContext<'a>,
+pub struct TIRGen<'a> {
     funcs: TiVec<FuncRef, Func<'a>>,
     types: TiVec<TypeRef, TypeDef<'a>>,
 }
 
-impl<'a> TIR<'a> {
-    pub fn new(ctx: TypeContext<'a>) -> Self {
+impl<'a> TIRGen<'a> {
+    pub fn new() -> Self {
         Self {
             funcs: ti_vec![],
             types: ti_vec![],
+        }
+    }
+}
+
+pub struct TIR<'a> {
+    funcs: TiVec<FuncRef, Func<'a>>,
+    types: TiVec<TypeRef, TypeDef<'a>>,
+    pub ctx: TypeContext<'a>,
+}
+
+impl<'a> TIR<'a> {
+    pub fn new(tir: TIRGen<'a>, ctx: TypeContext<'a>) -> Self {
+        Self {
+            funcs: tir.funcs,
+            types: tir.types,
             ctx,
         }
     }
