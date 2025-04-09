@@ -14,7 +14,12 @@ pub struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     pub fn new(src: &'a str) -> Self {
         Self {
-            position: Position { current: 0, start: 0, line: 1, offset: 0 },
+            position: Position {
+                current: 0,
+                start: 0,
+                line: 1,
+                offset: 0,
+            },
             src: src.as_bytes(),
 
             out: vec![],
@@ -26,7 +31,8 @@ impl<'a> Lexer<'a> {
     }
 
     fn append(&mut self, ty: TokenType) {
-        let text = match std::str::from_utf8(&self.src[self.position.start..self.position.current]) {
+        let text = match std::str::from_utf8(&self.src[self.position.start..self.position.current])
+        {
             Ok(text) => text,
             Err(err) => panic!("{:?}", err),
         };
@@ -89,7 +95,9 @@ impl<'a> Lexer<'a> {
                 b'[' => self.append_single(TokenType::LBracket),
                 b']' => self.append_single(TokenType::RBracket),
 
-                b'.' => self.append_single(TokenType::Dot),
+                b'.' => {
+                    self.append_single_or_next(b'{', TokenType::StructConstructor, TokenType::Dot)
+                }
                 b',' => self.append_single(TokenType::Comma),
 
                 b':' => self.append_single(TokenType::Colon),

@@ -1,6 +1,6 @@
+use crate::lexer::position::Position;
 use phf::phf_map;
 use strum_macros::IntoStaticStr;
-use crate::lexer::position::Position;
 
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 pub enum TokenType {
@@ -45,6 +45,7 @@ pub enum TokenType {
     LBracket,
     RBracket,
 
+    StructConstructor, // .{
     LBrace,
     RBrace,
 
@@ -145,5 +146,4 @@ pub fn precedence(token: Token<'_>) -> i32 {
 
         _ => -1,
     }
-
 }

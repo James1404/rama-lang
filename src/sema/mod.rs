@@ -13,20 +13,21 @@ use crate::{
 
 pub use error::{Result, SemaError};
 use frame::Frame;
+use itertools::{izip, Itertools};
 use log::info;
 use scope::{Def, Scope};
 
-pub struct Sema<'ast: 'tcx, 'tcx> {
+pub struct Sema<'ast> {
     ast: ASTView<'ast>,
     scopes: Scope<'ast>,
 
-    ctx: TypeContext<'tcx>,
+    ctx: TypeContext<'ast>,
     callstack: Vec<Frame>,
 
     metadata: TypeMetadata,
 }
 
-impl<'ast, 'tcx> Sema<'ast, 'tcx> {
+impl<'ast> Sema<'ast> {
     pub fn new(ast: ASTView<'ast>) -> Self {
         Self {
             ast,
@@ -44,6 +45,24 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             (Type::Float(_), Type::Float(_)) => true,
             (Type::Bool, Type::Bool) => true,
             (Type::Slice(t1), Type::Slice(t2)) => self.subtype(t1, t2),
+            (Type::ADT(adt1), Type::ADT(adt2)) => {
+                if adt1.kind != adt2.kind {
+                    return false;
+                }
+
+                for (f1, f2) in izip!(adt1.fields, adt2.fields) {
+                    match (f1.ty, f2.ty) {
+                        (Some(f1), Some(f2)) => {
+                            if !self.subtype(f1, f2) {
+                                return false;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                true
+            }
             _ => false,
         }
     }
@@ -114,7 +133,11 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
             self.metadata.set(term, ty);
             Ok(ty)
         } else {
-            Err(SemaError::InvalidType)
+            Err(SemaError::Err(format!(
+                "Type {} is not compatible with {}",
+                self.ctx.display(ty),
+                self.ctx.display(against)
+            )))
         }
     }
 
@@ -139,14 +162,78 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 Literal::Int(_) => Ok(self.ctx.alloc(Type::int(IntSize::Bits32))),
                 Literal::Float(_) => Ok(self.ctx.alloc(Type::Float(FloatKind::F32))),
                 Literal::Bool(_) => Ok(self.ctx.alloc(Type::Bool)),
+                Literal::Struct { fields } => {
+                    let mut adt_fields = Vec::<Field>::new();
+                    for node in fields {
+                        adt_fields.push(Field {
+                            ident: self.get_ident(node.ident)?,
+                            ty: Some(self.infer(node.value)?),
+                        });
+                    }
+
+                    let adt = ADT {
+                        kind: ADTKind::Struct,
+                        fields: adt_fields,
+                        generic_args: vec![],
+                    };
+
+                    Ok(self.ctx.alloc(Type::ADT(adt)))
+                }
             },
             Node::Ident(ident) => match self.scopes.get(ident.text) {
                 Some(Def::Const(ty)) => Ok(ty),
                 Some(Def::Var(ty)) => Ok(ty),
                 Some(Def::Fn(ty)) => Ok(ty),
                 Some(Def::Type(ty)) => Ok(ty),
-                None => Err(SemaError::NotDefined(ident)),
+                None => Err(SemaError::NotDefined(ident.text)),
             },
+
+            Node::FieldAccess(value, field) => {
+                let ty = self.infer(value)?;
+                let field = self.get_ident(field)?;
+
+                match self.ctx.get(ty) {
+                    Type::ADT(ADT { kind, fields, generic_args }) => {
+                        if let Some(field) = fields.iter().find(|f| f.ident == field) {
+                            Ok(field.ty.unwrap())
+                        }
+                        else {
+                            panic!("Doesnt have field")
+                        }
+                    },
+                    _ => panic!("Fixme")
+                }
+            },
+
+            Node::FnCall { func, args } => {
+                let func = self.infer(func)?;
+
+                if let Type::Fn {
+                    parameters,
+                    return_ty,
+                } = self.ctx.get(func)
+                {
+                    let args = args
+                        .iter()
+                        .map(|arg| self.infer(*arg))
+                        .flatten()
+                        .collect_vec();
+
+                    for (param, arg) in izip!(parameters, args) {
+                        if !self.subtype(arg, param) {
+                            return Err(SemaError::Err(format!(
+                                "Argument expected {} but got {}",
+                                self.ctx.display(param),
+                                self.ctx.display(arg)
+                            )));
+                        }
+                    }
+
+                    Ok(return_ty)
+                } else {
+                    Err(SemaError::Err("".to_owned()))
+                }
+            }
 
             Node::If { cond, t, f } => {
                 let b = self.ctx.alloc(Type::Bool);
@@ -225,7 +312,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 let mut adt_fields = Vec::<Field>::new();
                 for node in fields {
                     adt_fields.push(Field {
-                        ident: self.get_ident(node.ident)?.text,
+                        ident: self.get_ident(node.ident)?,
                         ty: Some(self.term_to_ty(node.ty, None)?),
                     });
                 }
@@ -242,7 +329,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 let mut adt_fields = Vec::<Field>::new();
                 for node in variants {
                     adt_fields.push(Field {
-                        ident: self.get_ident(node.ident)?.text,
+                        ident: self.get_ident(node.ident)?,
                         ty: if let Some(ty) = node.ty {
                             Some(self.term_to_ty(ty, None)?)
                         } else {
@@ -294,7 +381,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
 
                 text => match self.scopes.get(text) {
                     Some(Def::Type(ty)) => self.ctx.alloc(Type::Ref(ty)),
-                    _ => return Err(SemaError::NotDefined(token)),
+                    _ => return Err(SemaError::NotDefined(text)),
                 },
             },
             _ => return Err(SemaError::InvalidTerm(term)),
@@ -304,9 +391,9 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         Ok(ty)
     }
 
-    fn get_ident(&self, node: Ref) -> Result<'ast, Token<'ast>> {
+    fn get_ident(&self, node: Ref) -> Result<'ast, &'ast str> {
         match self.ast.get(node) {
-            Node::Ident(token) => Ok(token),
+            Node::Ident(token) => Ok(token.text),
             _ => Err(SemaError::InvalidTerm(node)),
         }
     }
@@ -323,12 +410,13 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 };
 
                 let ident = self.get_ident(ident)?;
-                self.scopes.push(ident.text, Def::Var(ty));
+                self.scopes.push(ident, Def::Var(ty));
                 self.metadata.set(node, ty);
             }
             Node::ConstDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
                     let ty = self.term_to_ty(ty, None)?;
+
                     self.check(value, ty)?;
                     ty
                 } else {
@@ -338,7 +426,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 info!("{:?}", self.ctx.get(ty));
 
                 let ident = self.get_ident(ident)?;
-                self.scopes.push(ident.text, Def::Const(ty));
+                self.scopes.push(ident, Def::Const(ty));
                 self.metadata.set(node, ty);
             }
 
@@ -348,13 +436,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 }
             }
             Node::Assignment { ident, value } => {
-                let ident = self.get_ident(ident)?;
-                let ty = match self.scopes.get(ident.text) {
-                    Some(Def::Var(ty)) => Ok(ty),
-                    Some(_) => Err(SemaError::CannotAssignToConst(ident)),
-                    None => Err(SemaError::NotDefined(ident)),
-                }?;
-
+                let ty = self.infer(ident)?;
                 self.check(value, ty)?;
                 self.metadata.set(node, ty);
             }
@@ -372,7 +454,9 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                     None => return Err(SemaError::FunctionDoesNotHaveReturnType),
                 }
             }
-            _ => return Err(SemaError::InvalidTerm(node)),
+            _ => {
+                self.infer(node)?;
+            }
         }
 
         Ok(())
@@ -390,7 +474,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 };
 
                 let ident = self.get_ident(ident)?;
-                self.scopes.push(ident.text, Def::Var(ty));
+                self.scopes.push(ident, Def::Var(ty));
 
                 self.metadata.set(node, ty);
             }
@@ -404,7 +488,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 };
 
                 let ident = self.get_ident(ident)?;
-                self.scopes.push(ident.text, Def::Const(ty));
+                self.scopes.push(ident, Def::Const(ty));
 
                 self.metadata.set(node, ty);
             }
@@ -415,6 +499,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 block,
             } => {
                 let ident = self.get_ident(ident)?;
+
                 let returnty = self.term_to_ty(ret, None)?;
 
                 let parameters = {
@@ -434,6 +519,9 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 self.callstack.push(Frame {
                     return_type: Some(returnty),
                 });
+
+                self.scopes.push(ident, Def::Fn(ty));
+
                 self.eval(block)?;
 
                 self.metadata.set(node, ty);
@@ -442,7 +530,7 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
                 let ident = self.get_ident(ident)?;
                 let ty = self.term_to_ty(body, Some(args))?;
 
-                self.scopes.push(ident.text, Def::Type(ty));
+                self.scopes.push(ident, Def::Type(ty));
 
                 self.metadata.set(node, ty);
             }
@@ -452,8 +540,8 @@ impl<'ast, 'tcx> Sema<'ast, 'tcx> {
         Ok(())
     }
 
-    pub fn run(mut self) -> (TypedAST<'tcx>, Vec<SemaError<'ast>>) {
-        let mut errors: Vec<SemaError<'ast>> = vec![];
+    pub fn run(mut self) -> (TypedAST<'ast>, Vec<SemaError<'ast>>) {
+        let mut errors: Vec<SemaError> = vec![];
 
         match self.ast.root {
             Some(node) => match self.ast.get(node) {

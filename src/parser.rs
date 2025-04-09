@@ -3,8 +3,8 @@ use std::result;
 use log::error;
 
 use crate::{
-    ast::{self, Node, Param, Ref, AST},
-    lexer::{precedence, Token, TokenType},
+    ast::{self, AST, Literal, LiteralStructField, Node, Param, Ref},
+    lexer::{Token, TokenType, precedence},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -114,7 +114,17 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
         let token = self.cursor.current();
 
         match token.ty {
-            TokenType::Ident => Ok(self.advance_alloc(Node::Ident(token))),
+            TokenType::Ident => {
+                let ident = self.advance_alloc(Node::Ident(token));
+
+                if self.cursor.advance_if(TokenType::Dot) {
+                    let field = self.parse_ident()?;
+
+                    Ok(self.alloc(Node::FieldAccess(ident, field)))
+                } else {
+                    Ok(ident)
+                }
+            }
             _ => Err(ParserError {
                 msg: "Unable to parse identifier".to_owned(),
                 token,
@@ -168,30 +178,70 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
         let value = match token.ty {
             TokenType::String => {
-                self.advance_alloc(Node::Literal(ast::Literal::String(token.text)))
+                Ok(self.advance_alloc(Node::Literal(ast::Literal::String(token.text))))
             }
-            TokenType::Float => self.advance_alloc(Node::Literal(ast::Literal::Float(token.text))),
-            TokenType::Int => self.advance_alloc(Node::Literal(ast::Literal::Int(token.text))),
-            TokenType::Ident => self.advance_alloc(Node::Ident(token)),
+            TokenType::Float => Ok(self.advance_alloc(Node::Literal(ast::Literal::Float(token.text)))),
+            TokenType::Int => Ok(self.advance_alloc(Node::Literal(ast::Literal::Int(token.text)))),
+            TokenType::Ident => self.parse_ident(),
+            TokenType::True => Ok(self.advance_alloc(Node::Literal(ast::Literal::Bool(true)))),
+            TokenType::False => Ok(self.advance_alloc(Node::Literal(ast::Literal::Bool(false)))),
 
-            TokenType::True => self.advance_alloc(Node::Literal(ast::Literal::Bool(true))),
-            TokenType::False => self.advance_alloc(Node::Literal(ast::Literal::Bool(false))),
+            TokenType::If => self.parse_if(),
 
-            TokenType::If => self.parse_if()?,
-
-            TokenType::Comptime => self.parse_comptime()?,
+            TokenType::Comptime => self.parse_comptime(),
 
             TokenType::LParen => {
                 self.cursor.advance();
                 let expr = self.parse_expr()?;
 
                 if self.cursor.advance_if(TokenType::RParen) {
-                    expr
+                    Ok(expr)
                 } else {
-                    return Err(ParserError {
+                    Err(ParserError {
                         msg: "Parenthesis requires closing brace".to_owned(),
                         token,
-                    });
+                    })
+                }
+            }
+
+            TokenType::StructConstructor => {
+                self.cursor.advance();
+
+                let mut fields = Vec::<LiteralStructField>::new();
+
+                while !self.cursor.matches(TokenType::RBrace) {
+                    if self.cursor.eof() {
+                        return Err(ParserError {
+                            msg: "Struct initialization requires a closing brace".to_owned(),
+                            token,
+                        });
+                    }
+
+                    let ident = self.parse_ident()?;
+
+                    if !self.cursor.advance_if(TokenType::Colon) {
+                        return Err(ParserError {
+                            msg: "Struct field requires a type".to_owned(),
+                            token,
+                        });
+                    }
+
+                    let value = self.parse_expr()?;
+
+                    fields.push(LiteralStructField { ident, value });
+
+                    if !self.cursor.advance_if(TokenType::Comma) {
+                        break;
+                    }
+                }
+
+                if self.cursor.advance_if(TokenType::RBrace) {
+                    Ok(self.alloc(Node::Literal(Literal::Struct { fields })))
+                } else {
+                    Err(ParserError {
+                        msg: "Struct initializer requires a closing brace".to_owned(),
+                        token,
+                    })
                 }
             }
 
@@ -203,14 +253,47 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
         };
 
+        if self.cursor.advance_if(TokenType::LParen) {
+            let mut args = Vec::<Ref>::new();
+
+            loop {
+                if self.cursor.matches(TokenType::RParen) {
+                    break;
+                }
+
+                if self.cursor.eof() {
+                    return Err(ParserError {
+                        msg: "".to_owned(),
+                        token,
+                    });
+                }
+
+                let arg = self.parse_expr()?;
+                args.push(arg);
+
+                if !self.cursor.advance_if(TokenType::Comma) {
+                    break;
+                }
+            }
+
+            if !self.cursor.advance_if(TokenType::RParen) {
+                return Err(ParserError {
+                    msg: "Type constructor requires a closing parenthesis".to_owned(),
+                    token,
+                });
+            }
+
+            return Ok(self.alloc(Node::FnCall { func: value?, args }));
+        }
+
         match self.cursor.current().ty {
             TokenType::As => {
                 self.cursor.advance();
                 let ty = self.parse_type_expr()?;
 
-                Ok(self.alloc(Node::Cast { value, ty }))
+                Ok(self.alloc(Node::Cast { value: value?, ty }))
             }
-            _ => Ok(value),
+            _ => value,
         }
     }
 
@@ -377,7 +460,10 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 }
 
                 if self.cursor.eof() {
-                    return Err(ParserError { msg: "".to_owned(), token });
+                    return Err(ParserError {
+                        msg: "".to_owned(),
+                        token,
+                    });
                 }
 
                 let arg = self.parse_type_expr()?;
@@ -489,7 +575,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 while !self.cursor.advance_if(TokenType::RParen) {
                     if self.cursor.eof() {
                         return Err(ParserError {
-                            msg: "Type paramaters require a closing brace".to_owned(), 
+                            msg: "Type paramaters require a closing brace".to_owned(),
                             token,
                         });
                     }
@@ -589,7 +675,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             TokenType::Return => {
                 self.cursor.advance();
                 let expr = self.parse_expr()?;
-                
+
                 return if self.cursor.advance_if(TokenType::Semicolon) {
                     Ok(self.alloc(Node::Return(expr)))
                 } else {
@@ -598,7 +684,6 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                         token,
                     })
                 };
-
             }
             TokenType::Defer => {
                 self.cursor.advance();
@@ -609,18 +694,16 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             TokenType::Type => self.parse_type_stmt(),
             TokenType::Interface => self.parse_interface(),
             TokenType::Fn => self.parse_fn_stmt(),
-            _ if self.cursor.matches(TokenType::Ident)
-                && self.cursor.matches_next(TokenType::Equal) =>
-            {
-                let ident = self.parse_ident()?;
-                self.cursor.advance();
-
-                let value = self.parse_expr()?;
-
-                Ok(self.alloc(Node::Assignment { ident, value }))
-            }
             _ => {
                 let expr = self.parse_expr()?;
+
+                let expr = if self.cursor.advance_if(TokenType::Equal) {
+                    let value = self.parse_expr()?;
+
+                    self.alloc(Node::Assignment { ident: expr, value })
+                } else {
+                    expr
+                };
 
                 if self.cursor.advance_if(TokenType::Semicolon) {
                     Ok(expr)

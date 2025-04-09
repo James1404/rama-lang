@@ -3,8 +3,14 @@ use derive_more::Display;
 
 use crate::lexer::Token;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Display)]
 pub struct Ref(pub usize);
+
+#[derive(Debug, Clone)]
+pub struct LiteralStructField {
+    pub ident: Ref,
+    pub value: Ref,
+}
 
 #[derive(Debug, Clone)]
 pub enum Literal<'a> {
@@ -12,6 +18,9 @@ pub enum Literal<'a> {
     Int(&'a str),
     String(&'a str),
     Bool(bool),
+    Struct {
+        fields: Vec<LiteralStructField>,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -133,6 +142,9 @@ pub enum Node<'a> {
         fields: Vec<StructField>,
     },
 
+    Index(Ref, Ref),
+    FieldAccess(Ref, Ref),
+
     Reference(Ref),
     Dereference(Ref),
 
@@ -220,6 +232,13 @@ impl<'a> ASTView<'a> {
                 Literal::Int(val) => out!(indentation + 1, "{}", val),
                 Literal::String(val) => out!(indentation + 1, "{}", val),
                 Literal::Bool(val) => out!(indentation + 1, "{}", val),
+                Literal::Struct{ fields} => {
+                    for field in fields {
+                        out!(indentation + 1, "field");
+                        self.print(field.ident, indentation + 2);
+                        self.print(field.value, indentation + 2);
+                    }
+                }
             },
 
             Node::Ident(token) => out!(indentation + 1, "{}", token.text),
@@ -352,6 +371,16 @@ impl<'a> ASTView<'a> {
                     self.print(node.ident, indentation + 1);
                     self.print(node.ty, indentation + 1);
                 }
+            }
+
+            
+            Node::Index(value, index) => {
+                self.print(value, indentation + 1);
+                self.print(index, indentation + 1);
+            },
+            Node::FieldAccess(value, field) => {
+                self.print(value, indentation + 1);
+                self.print(field, indentation + 1);
             }
 
             Node::Reference(value) => self.print(value, indentation + 1),

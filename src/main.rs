@@ -1,8 +1,12 @@
 use std::{fmt::Debug, fs, io, path::Path};
 
+#[macro_use]
+extern crate derive_more;
+
 use clap_complete::{Generator, Shell, generate};
 use lexer::Lexer;
 use log::error;
+use metadata::Metadata;
 use parser::Parser;
 
 use clap::{Command, Parser as ClapParser, Subcommand};
@@ -16,6 +20,8 @@ mod sema;
 mod tir;
 mod typed_ast;
 mod types;
+mod metadata;
+mod valuescope;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]
@@ -40,9 +46,15 @@ enum Commands {
 
 fn compile<P>(path: P, cli: &Cli) -> io::Result<()>
 where
-    P: AsRef<Path>,
+    P: AsRef<Path> + Clone,
 {
-    let src = std::fs::read_to_string(path)?;
+    let src = std::fs::read_to_string(path.clone())?;
+
+    let fullpath = path.as_ref().to_str().unwrap();
+    let metadata = Metadata {
+        filename: path.as_ref().file_name().unwrap(),
+        path: fullpath,
+    };
 
     let lexer = Lexer::new(&src);
     let tokens = lexer.run();
@@ -61,7 +73,7 @@ where
         Err(err) => {
             error!(
                 "[{}; {}] {}",
-                err.token.pos.line, err.token.pos.start, err.msg
+                err.token.pos.line, err.token.pos.offset, err.msg
             );
             return Ok(());
         }
@@ -75,13 +87,18 @@ where
     let mut sema = Sema::new(astview);
     let (tast, errors) = sema.run();
 
-    for error in errors {
+    for error in &errors {
         println!("Error: {}", error);
+    }
+    if !errors.is_empty() {
+        return Ok(());
     }
 
     tast.print();
 
-    let mut backend = backend::llvm::Codegen::new(tast);
+
+    println!("<== Starting CodeGen ==>");
+    let mut backend = backend::llvm::Codegen::new(tast, metadata);
     backend.run();
 
     Ok(())

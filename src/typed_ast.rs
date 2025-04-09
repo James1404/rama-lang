@@ -24,7 +24,7 @@ impl TypeMetadata {
     }
 
     pub fn get(&self, node: Ref) -> TypeID {
-        self.data[node.0].expect("Unitinialized type")
+        self.data[node.0].expect(format!("Unitinialized type at {}", node).as_str())
     }
 }
 
@@ -47,9 +47,10 @@ impl<'a> TypedAST<'a> {
     }
 
     pub fn print(&self) {
-        for (ast, ty) in izip!(self.ast.data.iter(), self.meta.data.iter().flatten()) {
+        for (idx, (ast, ty)) in izip!(self.ast.data.iter(), self.meta.data.iter().flatten()).enumerate() {
             println!(
-                "{}: {}",
+                "[{}] {}: {}",
+                idx,
                 Into::<&'static str>::into(ast),
                 self.context.display(*ty)
             );
@@ -64,7 +65,7 @@ impl<'a> TypedAST<'a> {
         self.meta.get(index)
     }
 
-    pub fn get_ty(&self, index: Ref) -> Type {
+    pub fn get_ty(&self, index: Ref) -> Type<'a> {
         let ty = self.get_type_id(index);
         self.context.get(ty)
     }

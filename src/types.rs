@@ -1,11 +1,13 @@
 use std::fmt::{Display, Write};
 
+use derive_more::Display;
+
 extern crate llvm_sys as llvm;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Display)]
 pub struct TypeID(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Field<'a> {
     pub ident: &'a str,
     pub ty: Option<TypeID>,
@@ -77,7 +79,10 @@ pub enum Type<'a> {
 
 impl<'a> Type<'a> {
     pub fn uint(size: IntSize) -> Type<'a> {
-        Type::Int { size, signed: false }
+        Type::Int {
+            size,
+            signed: false,
+        }
     }
 
     pub fn int(size: IntSize) -> Type<'a> {
@@ -111,60 +116,15 @@ impl<'a> TypeContext<'a> {
         self.alloc(Type::Array { inner, len })
     }
 
-    pub fn get(&self, id: TypeID) -> Type {
-        self.data[id.0].clone()
-    }
-
-    pub fn get_mut(&mut self, id: TypeID) -> &mut Type<'a> {
-        &mut self.data[id.0]
-    }
-
-    pub fn display(&'a self, ty: TypeID) -> TypeFmt<'a> {
-        TypeFmt { ctx: self, ty }
-    }
-
-    pub fn to_llvm(&'a self, context: *mut llvm::LLVMContext, ty: TypeID) -> *mut llvm::LLVMType {
-        match self.get(ty) {
-            Type::Unit => todo!(),
-            Type::Void => unsafe { llvm::core::LLVMVoidTypeInContext(context) },
-            Type::Bool => todo!(),
-            Type::Int { size, signed } => unsafe {
-                match (signed, size) {
-                    (true, IntSize::Bits8) => llvm::core::LLVMInt8TypeInContext(context),
-                    (true, IntSize::Bits16) => llvm::core::LLVMInt16TypeInContext(context),
-                    (true, IntSize::Bits32) => llvm::core::LLVMInt32TypeInContext(context),
-                    (true, IntSize::Bits64) => llvm::core::LLVMInt64TypeInContext(context),
-                    (true, IntSize::BitsPtr) => llvm::core::LLVMInt64TypeInContext(context),
-                    (false, IntSize::Bits8) => llvm::core::LLVMInt8TypeInContext(context),
-                    (false, IntSize::Bits16) => llvm::core::LLVMInt16TypeInContext(context),
-                    (false, IntSize::Bits32) => llvm::core::LLVMInt32TypeInContext(context),
-                    (false, IntSize::Bits64) => llvm::core::LLVMInt64TypeInContext(context),
-                    (false, IntSize::BitsPtr) => llvm::core::LLVMInt64TypeInContext(context),
-                }
-            },
-            Type::Float(kind) => unsafe {
-                match kind {
-                    FloatKind::F32 => llvm::core::LLVMFloatTypeInContext(context),
-                    FloatKind::F64 => llvm::core::LLVMDoubleTypeInContext(context),
-                }
-            },
-            Type::Slice(type_id) => todo!(),
-            Type::Array { inner, len } => unsafe {
-                llvm::core::LLVMArrayType2(self.to_llvm(context, inner), len as u64)
-            },
-            Type::ADT(adt) => todo!(),
-            Type::Ptr(inner) => unsafe {
-                llvm::core::LLVMPointerTypeInContext(
-                    context,
-                    llvm::core::LLVMGetPointerAddressSpace(self.to_llvm(context, inner)),
-                )
-            },
-            Type::Fn {
-                parameters,
-                return_ty,
-            } => todo!(),
-            Type::Ref(ty) => todo!(),
+    pub fn get(&self, id: TypeID) -> Type<'a> {
+        match self.data[id.0].clone() {
+            Type::Ref(ty) => self.get(ty),
+            ty => ty,
         }
+    }
+
+    pub fn display(&self, ty: TypeID) -> TypeFmt {
+        TypeFmt { ctx: self, ty }
     }
 }
 
@@ -186,11 +146,11 @@ impl<'a> Display for TypeFmt<'a> {
                 "{}{}",
                 if signed { "i" } else { "u" },
                 match size {
-                    IntSize::Bits8 => "i8",
-                    IntSize::Bits16 => "i16",
-                    IntSize::Bits32 => "i32",
-                    IntSize::Bits64 => "i64",
-                    IntSize::BitsPtr => "isize",
+                    IntSize::Bits8 => "8",
+                    IntSize::Bits16 => "16",
+                    IntSize::Bits32 => "32",
+                    IntSize::Bits64 => "64",
+                    IntSize::BitsPtr => "size",
                 }
             ),
             Type::Float(float_kind) => write!(

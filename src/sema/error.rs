@@ -1,15 +1,13 @@
 use std::{fmt::Display, result};
 
 use crate::{
-    ast,
-    types::TypeID,
-    lexer::{Token, TokenType},
+    ast::{self, Ref}, lexer::{Token, TokenType}, types::TypeID
 };
 
 #[derive(Debug, Clone, )]
 pub enum SemaError<'a> {
     InvalidType,
-    InvalidTerm(ast::Ref),
+    InvalidTerm(Ref),
     InvalidCast {
         from: TypeID,
         into: TypeID,
@@ -19,12 +17,12 @@ pub enum SemaError<'a> {
         op: TokenType,
         rhs: TypeID,
     },
-    NotDefined(Token<'a>),
+    NotDefined(&'a str),
 
-    InvalidRootNode(ast::Ref),
+    InvalidRootNode(Ref),
     NoRootNode,
 
-    CannotAssignToConst(Token<'a>),
+    CannotAssignToConst(String),
 
     CannotReturnOutsideOfFunction,
     FunctionDoesNotHaveReturnType,
@@ -36,10 +34,10 @@ impl<'a> Display for SemaError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SemaError::InvalidType => write!(f, "Invalid Type"),
-            SemaError::InvalidTerm(_) => todo!(),
+            SemaError::InvalidTerm(term) => write!(f, "Invalid term {}", term),
             SemaError::InvalidCast { from, into } => todo!(),
             SemaError::InvalidBinaryTypes { lhs, op, rhs } => todo!(),
-            SemaError::NotDefined(token) => todo!(),
+            SemaError::NotDefined(ident) => write!(f, "Variable \"{}\" not defined", ident),
             SemaError::InvalidRootNode(_) => todo!(),
             SemaError::NoRootNode => todo!(),
             SemaError::CannotAssignToConst(token) => todo!(),
