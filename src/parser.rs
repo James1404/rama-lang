@@ -1,7 +1,5 @@
 use std::result;
 
-use log::error;
-
 use crate::{
     ast::{self, AST, Literal, LiteralStructField, Node, Param, Ref},
     lexer::{Token, TokenType, precedence},

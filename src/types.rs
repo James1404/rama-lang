@@ -1,4 +1,4 @@
-use std::fmt::{Display, Write};
+use std::fmt::Display;
 
 use derive_more::Display;
 
@@ -54,8 +54,6 @@ pub struct FnType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type<'a> {
-    Unit,
-
     Void,
 
     Bool,
@@ -134,8 +132,6 @@ pub struct TypeFmt<'a> {
 impl<'a> Display for TypeFmt<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.ctx.get(self.ty) {
-            Type::Unit => write!(f, "()"),
-
             Type::Void => write!(f, "void"),
             Type::Bool => write!(f, "bool"),
             Type::Int { size, signed } => write!(
@@ -172,7 +168,10 @@ impl<'a> Display for TypeFmt<'a> {
                 write!(f, "}}")
             }
             Type::Ptr(inner) => write!(f, "*{}", self.ctx.display(inner)),
-            Type::Fn(FnType { parameters, return_ty }) => {
+            Type::Fn(FnType {
+                parameters,
+                return_ty,
+            }) => {
                 f.write_str("fn(")?;
                 let mut iter = parameters.iter().peekable();
                 while let Some(param) = iter.next() {

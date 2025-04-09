@@ -1,4 +1,4 @@
-use std::{fmt::Debug, fs, io, path::Path};
+use std::{fs, io, path::Path};
 
 #[macro_use]
 extern crate derive_more;
@@ -10,17 +10,16 @@ use metadata::Metadata;
 use parser::Parser;
 
 use clap::{Command, Parser as ClapParser, Subcommand};
-use sema::{Sema, SemaError};
+use sema::Sema;
 
 mod ast;
 mod backend;
 mod lexer;
+mod metadata;
 mod parser;
 mod sema;
 mod tir;
-mod typed_ast;
 mod types;
-mod metadata;
 mod valuescope;
 
 #[derive(ClapParser)]
@@ -32,7 +31,7 @@ struct Cli {
     generator: Option<Shell>,
     #[command(subcommand)]
     command: Option<Commands>,
-    
+
     #[arg(long)]
     print_tokens: bool,
     #[arg(long)]
@@ -84,8 +83,8 @@ where
         astview.pretty_print();
     }
 
-    let mut sema = Sema::new(astview);
-    let (tast, errors) = sema.run();
+    let sema = Sema::new(astview);
+    let (tir, errors) = sema.run();
 
     for error in &errors {
         println!("Error: {}", error);
@@ -94,11 +93,10 @@ where
         return Ok(());
     }
 
-    tast.print();
-
+    tir.pretty_print();
 
     println!("<== Starting CodeGen ==>");
-    let mut backend = backend::llvm::Codegen::new(tast, metadata);
+    let backend = backend::llvm::Codegen::new(tir, metadata);
     backend.run();
 
     Ok(())

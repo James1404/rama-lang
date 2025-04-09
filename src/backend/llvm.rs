@@ -1,12 +1,9 @@
-use std::{collections::HashMap, ffi::CString};
+use std::ffi::CString;
 
 use crate::{
-    lexer::TokenType,
     metadata::Metadata,
     tir::{CFG, FuncRef, Instruction, Loc, Ref, TIR, Terminator, TypeDef},
-    typed_ast::TypedAST,
     types::{ADTKind, FloatKind, FnType, IntSize, Type, TypeID},
-    valuescope::ScopeArena,
 };
 
 extern crate llvm_sys as llvm;
@@ -18,14 +15,6 @@ use llvm_sys::target_machine::{
     LLVMGetTargetFromTriple, LLVMRelocMode, LLVMTargetRef,
 };
 use typed_index_collections::{TiVec, ti_vec};
-
-#[derive(Debug, Clone)]
-pub enum Def {
-    Local(*mut LLVMValue),
-    Type(*mut LLVMType),
-}
-
-type Scope<'a> = ScopeArena<'a, Def>;
 
 struct CFGMapping {
     data: TiVec<Ref, *mut LLVMValue>,
@@ -59,7 +48,6 @@ impl CFGMapping {
 
 pub struct Codegen<'a> {
     tir: TIR<'a>,
-    scopes: Scope<'a>,
 
     functions_mapping: TiVec<FuncRef, *mut LLVMValue>,
 
@@ -88,7 +76,6 @@ impl<'a> Codegen<'a> {
 
         Self {
             tir,
-            scopes: Scope::new(),
             functions_mapping: ti_vec![],
             context,
             module,
@@ -99,7 +86,6 @@ impl<'a> Codegen<'a> {
     fn type_to_llvm(&self, ty: TypeID) -> *mut LLVMType {
         unsafe {
             match self.tir.ctx.get(ty) {
-                Type::Unit => todo!(),
                 Type::Void => LLVMVoidTypeInContext(self.context),
                 Type::Bool => LLVMInt8TypeInContext(self.context),
                 Type::Int { size, signed } => match (signed, size) {
@@ -167,7 +153,7 @@ impl<'a> Codegen<'a> {
                         0,
                     )
                 }
-                Type::Ref(type_id) => todo!(),
+                Type::Ref(_) => todo!(),
             }
         }
     }
@@ -204,23 +190,20 @@ impl<'a> Codegen<'a> {
 
                     LLVMBuildFDiv(builder, lhs, rhs, CString::new("divtmp").unwrap().as_ptr())
                 }
-                Instruction::CmpGt { lhs, rhs, .. } => todo!(),
-                Instruction::CmpLt { lhs, rhs, .. } => todo!(),
-                Instruction::CmpGe { lhs, rhs, .. } => todo!(),
-                Instruction::CmpLe { lhs, rhs, .. } => todo!(),
-                Instruction::CmpEq { lhs, rhs, .. } => todo!(),
-                Instruction::CmpNq { lhs, rhs, .. } => todo!(),
-                Instruction::Negate { value, .. } => todo!(),
-                Instruction::Not { value, .. } => todo!(),
-                Instruction::Load { reg, .. } => todo!(),
+                Instruction::CmpGt { .. } => todo!(),
+                Instruction::CmpLt { .. } => todo!(),
+                Instruction::CmpGe { .. } => todo!(),
+                Instruction::CmpLe { .. } => todo!(),
+                Instruction::CmpEq { .. } => todo!(),
+                Instruction::CmpNq { .. } => todo!(),
+                Instruction::Negate { .. } => todo!(),
+                Instruction::Not { .. } => todo!(),
+                Instruction::Load { .. } => todo!(),
                 Instruction::Store { reg, value } => {
-                    let alloca = mapping.get(*reg);
-                    let value = mapping.get(*value);
-
-                    LLVMBuildStore(builder, value, alloca)
+                    mapping.get(*value)
                 }
-                Instruction::Ref { value, .. } => todo!(),
-                Instruction::Deref { value, .. } => todo!(),
+                Instruction::Ref { .. } => todo!(),
+                Instruction::Deref { .. } => todo!(),
                 Instruction::Cast {
                     value, from, to, ..
                 } => {
@@ -229,14 +212,14 @@ impl<'a> Codegen<'a> {
                     let name = CString::new("").unwrap();
 
                     match (self.tir.ctx.get(*from), self.tir.ctx.get(*to)) {
-                        (Type::Float(_), Type::Int { size, signed }) => {
+                        (Type::Float(_), Type::Int { signed, .. }) => {
                             if signed {
                                 LLVMBuildFPToSI(builder, value, ty, name.as_ptr())
                             } else {
                                 LLVMBuildFPToUI(builder, value, ty, name.as_ptr())
                             }
                         }
-                        (Type::Int { size, signed }, Type::Float(_)) => {
+                        (Type::Int { signed, .. }, Type::Float(_)) => {
                             if signed {
                                 LLVMBuildSIToFP(builder, value, ty, name.as_ptr())
                             } else {
@@ -268,7 +251,7 @@ impl<'a> Codegen<'a> {
                         _ => panic!(),
                     }
                 }
-                Instruction::CreateStruct { ty, fields } => {
+                Instruction::CreateStruct { ty, fields, .. } => {
                     let name = CString::new("").unwrap();
                     let alloca = LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr());
 
@@ -302,10 +285,14 @@ impl<'a> Codegen<'a> {
                         name.as_ptr(),
                     )
                 }
-                Instruction::Call { func, args, .. } => {
-                    let ty = self.type_to_llvm(self.tir.get_func(*func).ty.return_ty);
 
-                    let func = self.functions_mapping[*func];
+                Instruction::FuncRef { index, .. } => self.functions_mapping[*index],
+                Instruction::TypeRef { .. } => todo!(),
+
+                Instruction::Call { func, args, ty, .. } => {
+                    let ty = self.type_to_llvm(*ty);
+
+                    let func = mapping.get(*func);
                     let mut args = args.iter().map(|arg| mapping.get(*arg)).collect_vec();
 
                     LLVMBuildCall2(
@@ -317,21 +304,21 @@ impl<'a> Codegen<'a> {
                         CString::new("").unwrap().as_ptr(),
                     )
                 }
-                Instruction::Integer(value, ty) => LLVMConstIntOfString(
+                Instruction::Integer { value, ty, .. } => LLVMConstIntOfString(
                     self.type_to_llvm(*ty),
                     CString::new(*value).unwrap().as_ptr(),
                     10,
                 ),
-                Instruction::Float(value, ty) => LLVMConstRealOfString(
+                Instruction::Float { value, ty, .. } => LLVMConstRealOfString(
                     self.type_to_llvm(*ty),
                     CString::new(*value).unwrap().as_ptr(),
                 ),
-                Instruction::Bool(value) => LLVMConstInt(
+                Instruction::Bool { value, .. } => LLVMConstInt(
                     LLVMInt8TypeInContext(self.context),
                     *value as u64,
                     false as i32,
                 ),
-                Instruction::String(value) => {
+                Instruction::String { value, .. } => {
                     let ty =
                         LLVMArrayType2(LLVMInt8TypeInContext(self.context), value.len() as u64);
 
@@ -366,7 +353,7 @@ impl<'a> Codegen<'a> {
                 Terminator::Goto(loc) => {
                     LLVMBuildBr(builder, mapping.get_bb(*loc));
                 }
-                Terminator::If { cond, t, f } => todo!(),
+                Terminator::If { .. } => todo!(),
                 Terminator::Return(value) => {
                     LLVMBuildRet(builder, mapping.get(*value));
                 }
@@ -379,12 +366,12 @@ impl<'a> Codegen<'a> {
         let mut mapping = CFGMapping::new();
 
         for (idx, bb) in cfg.blocks.iter().enumerate() {
-            let llvmName = CString::new(format!("bb{}", idx)).unwrap();
-            let llvmBB =
-                unsafe { LLVMAppendBasicBlockInContext(self.context, function, llvmName.as_ptr()) };
+            let llvm_name = CString::new(format!("bb{}", idx)).unwrap();
+            let llvm_bb =
+                unsafe { LLVMAppendBasicBlockInContext(self.context, function, llvm_name.as_ptr()) };
 
-            mapping.push_bb(llvmBB);
-            unsafe { LLVMPositionBuilderAtEnd(self.builder, llvmBB) };
+            mapping.push_bb(llvm_bb);
+            unsafe { LLVMPositionBuilderAtEnd(self.builder, llvm_bb) };
 
             bb.instructions
                 .iter()
@@ -395,21 +382,25 @@ impl<'a> Codegen<'a> {
     }
 
     pub fn run(mut self) {
-        for &TypeDef { ty, .. } in self.tir.type_iter() {
+        for TypeDef { ty, .. } in self.tir.type_iter() {
             self.type_to_llvm(ty);
         }
 
-        for func in self.tir.func_iter() {
+        for func in self.tir.clone().func_iter() {
+            let ty = match self.tir.ctx.get(func.ty) {
+                Type::Fn(ty) => ty,
+                _ => panic!(),
+            };
+
             let ident = CString::new(func.name).unwrap();
             let function = unsafe {
-                let return_ty = self.type_to_llvm(func.ty.return_ty);
+                let return_ty = self.type_to_llvm(ty.return_ty);
                 let function_type = LLVMFunctionType(return_ty, std::ptr::null_mut(), 0, 0);
                 LLVMAddFunction(self.module, ident.as_ptr(), function_type)
             };
 
             self.functions_mapping.push(function);
-
-            unsafe { self.eval_cfg(function, &func.block) };
+            self.eval_cfg(function, &func.cfg);
         }
 
         unsafe {
@@ -446,7 +437,6 @@ impl<'a> Codegen<'a> {
             };
 
             let builder = LLVMCreatePassBuilderOptions();
-            LLVMPassBuilderOptionsSetVerifyEach(builder, true as i32);
             LLVMPassBuilderOptionsSetDebugLogging(builder, true as i32);
 
             let passes = CString::new("mem2reg").unwrap();

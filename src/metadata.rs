@@ -1,4 +1,4 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 
 pub struct Metadata<'a> {
     pub filename: &'a OsStr,

@@ -1,5 +1,6 @@
 import "io"
 
-fn main() void {
+fn main() i32 {
    const number = (5 + 21) * 25;
+   return number;
 }

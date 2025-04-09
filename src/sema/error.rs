@@ -1,10 +1,8 @@
 use std::{fmt::Display, result};
 
-use crate::{
-    ast::{self, Ref}, lexer::{Token, TokenType}, types::TypeID
-};
+use crate::{ast::Ref, lexer::TokenType, types::TypeID};
 
-#[derive(Debug, Clone, )]
+#[derive(Debug, Clone)]
 pub enum SemaError<'a> {
     InvalidType,
     InvalidTerm(Ref),
@@ -35,12 +33,12 @@ impl<'a> Display for SemaError<'a> {
         match self {
             SemaError::InvalidType => write!(f, "Invalid Type"),
             SemaError::InvalidTerm(term) => write!(f, "Invalid term {}", term),
-            SemaError::InvalidCast { from, into } => todo!(),
-            SemaError::InvalidBinaryTypes { lhs, op, rhs } => todo!(),
+            SemaError::InvalidCast { .. } => todo!(),
+            SemaError::InvalidBinaryTypes { .. } => todo!(),
             SemaError::NotDefined(ident) => write!(f, "Variable \"{}\" not defined", ident),
             SemaError::InvalidRootNode(_) => todo!(),
             SemaError::NoRootNode => todo!(),
-            SemaError::CannotAssignToConst(token) => todo!(),
+            SemaError::CannotAssignToConst(_) => todo!(),
             SemaError::CannotReturnOutsideOfFunction => todo!(),
             SemaError::FunctionDoesNotHaveReturnType => todo!(),
             SemaError::Err(msg) => write!(f, "{}", msg),
