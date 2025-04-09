@@ -3,7 +3,7 @@
 use derive_more::Display;
 use typed_index_collections::{TiVec, ti_vec};
 
-use crate::types::{TypeContext, TypeID};
+use crate::types::{FnType, TypeContext, TypeID};
 
 #[derive(Debug, Clone, Copy, From, Into, Display)]
 pub struct Loc(usize);
@@ -94,21 +94,26 @@ pub enum Instruction<'a> {
     Cast {
         dest: Ref,
         value: Ref,
-        ty: TypeID,
+
+        from: TypeID,
+        to: TypeID,
     },
 
     CreateStruct {
-        fields: Vec<Ref>,
+        ty: TypeID,
+        fields: Vec<(Ref, TypeID)>,
     },
     StructStore {
         r#struct: Ref,
-        idx: usize,
+        field: Ref,
         value: Ref,
+        ty: TypeID,
     },
     StructLoad {
         dest: Ref,
         r#struct: Ref,
         idx: usize,
+        ty: TypeID,
     },
 
     Call {
@@ -133,22 +138,22 @@ pub enum Terminator {
 
 #[derive(Debug, Clone)]
 pub struct BasicBlock<'a> {
-    instructions: Vec<Instruction<'a>>,
-    terminator: Terminator,
+    pub instructions: Vec<Instruction<'a>>,
+    pub terminator: Terminator,
 }
 
 #[derive(Debug, Clone)]
 pub struct CFG<'a> {
-    blocks: TiVec<Loc, BasicBlock<'a>>,
-    register_count: usize,
+    pub blocks: TiVec<Loc, BasicBlock<'a>>,
+    pub register_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, From, Into, Display)]
 pub struct TypeRef(pub usize);
 #[derive(Debug, Clone)]
 pub struct TypeDef<'a> {
-    name: &'a str,
-    ty: TypeID,
+    pub name: &'a str,
+    pub ty: TypeID,
 }
 
 #[derive(Debug, Clone, Copy, From, Into, Display)]
@@ -156,12 +161,13 @@ pub struct FuncRef(pub usize);
 
 #[derive(Debug, Clone)]
 pub struct Func<'a> {
-    ty: TypeID,
-    block: CFG<'a>,
+    pub name: &'a str,
+    pub ty: FnType,
+    pub block: CFG<'a>,
 }
 
 pub struct TIR<'a> {
-    ctx: TypeContext<'a>,
+    pub ctx: TypeContext<'a>,
     funcs: TiVec<FuncRef, Func<'a>>,
     types: TiVec<TypeRef, TypeDef<'a>>,
 }
@@ -173,5 +179,17 @@ impl<'a> TIR<'a> {
             types: ti_vec![],
             ctx,
         }
+    }
+
+    pub fn get_func(&self, index: FuncRef) -> &Func<'a> {
+        &self.funcs[index]
+    }
+
+    pub fn func_iter(&self) -> std::slice::Iter<'_, Func<'a>> {
+        self.funcs.iter()
+    }
+
+    pub fn type_iter(&self) -> std::slice::Iter<'_, TypeDef<'a>> {
+        self.types.iter()
     }
 }

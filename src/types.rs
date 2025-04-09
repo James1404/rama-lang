@@ -47,32 +47,29 @@ pub enum IntSize {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct FnType {
+    pub parameters: Vec<TypeID>,
+    pub return_ty: TypeID,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type<'a> {
     Unit,
 
     Void,
 
     Bool,
-    Int {
-        size: IntSize,
-        signed: bool,
-    },
+    Int { size: IntSize, signed: bool },
     Float(FloatKind),
 
     Slice(TypeID),
-    Array {
-        inner: TypeID,
-        len: usize,
-    },
+    Array { inner: TypeID, len: usize },
 
     ADT(ADT<'a>),
 
     Ptr(TypeID),
 
-    Fn {
-        parameters: Vec<TypeID>,
-        return_ty: TypeID,
-    },
+    Fn(FnType),
 
     Ref(TypeID),
 }
@@ -175,10 +172,7 @@ impl<'a> Display for TypeFmt<'a> {
                 write!(f, "}}")
             }
             Type::Ptr(inner) => write!(f, "*{}", self.ctx.display(inner)),
-            Type::Fn {
-                parameters,
-                return_ty,
-            } => {
+            Type::Fn(FnType { parameters, return_ty }) => {
                 f.write_str("fn(")?;
                 let mut iter = parameters.iter().peekable();
                 while let Some(param) = iter.next() {

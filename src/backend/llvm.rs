@@ -1,11 +1,12 @@
 use std::{collections::HashMap, ffi::CString};
 
 use crate::{
-    ast::{Literal, Node, Ref},
     lexer::TokenType,
     metadata::Metadata,
+    tir::{CFG, FuncRef, Instruction, Ref, TIR, TypeDef},
     typed_ast::TypedAST,
-    types::{ADTKind, FloatKind, IntSize, Type, TypeID}, valuescope::ScopeArena,
+    types::{ADTKind, FloatKind, FnType, IntSize, Type, TypeID},
+    valuescope::ScopeArena,
 };
 
 extern crate llvm_sys as llvm;
@@ -16,6 +17,7 @@ use llvm_sys::target_machine::{
     LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetMachine, LLVMGetDefaultTargetTriple,
     LLVMGetTargetFromTriple, LLVMRelocMode, LLVMTargetRef,
 };
+use typed_index_collections::{TiVec, ti_vec};
 
 #[derive(Debug, Clone)]
 pub enum Def {
@@ -25,10 +27,29 @@ pub enum Def {
 
 type Scope<'a> = ScopeArena<'a, Def>;
 
-pub struct Codegen<'a> {
-    ast: TypedAST<'a>,
+struct CFGMapping {
+    data: TiVec<Ref, *mut LLVMValue>,
+}
 
+impl CFGMapping {
+    fn new() -> Self {
+        Self { data: ti_vec![] }
+    }
+
+    fn push(&mut self, value: *mut LLVMValue) {
+        self.data.push(value);
+    }
+
+    fn get(&mut self, value: Ref) -> *mut LLVMValue {
+        self.data[value]
+    }
+}
+
+pub struct Codegen<'a> {
+    tir: TIR<'a>,
     scopes: Scope<'a>,
+
+    functions_mapping: TiVec<FuncRef, *mut LLVMValue>,
 
     context: *mut LLVMContext,
     module: *mut LLVMModule,
@@ -46,7 +67,7 @@ impl<'a> Drop for Codegen<'a> {
 }
 
 impl<'a> Codegen<'a> {
-    pub fn new(ast: TypedAST<'a>, metadata: Metadata<'a>) -> Self {
+    pub fn new(tir: TIR<'a>, metadata: Metadata<'a>) -> Self {
         let name = CString::new(metadata.filename.to_str().unwrap()).unwrap();
 
         let context = unsafe { core::LLVMContextCreate() };
@@ -54,18 +75,12 @@ impl<'a> Codegen<'a> {
         let builder = unsafe { core::LLVMCreateBuilderInContext(context) };
 
         Self {
-            ast,
+            tir,
             scopes: Scope::new(),
+            functions_mapping: ti_vec![],
             context,
             module,
             builder,
-        }
-    }
-
-    fn get_ident(&'a self, node: Ref) -> &'a str {
-        match self.ast.get_node(node) {
-            Node::Ident(token) => token.text,
-            _ => panic!(),
         }
     }
 
@@ -397,10 +412,10 @@ impl<'a> Codegen<'a> {
                     _ => todo!(),
                 },
                 Type::Ptr(_) => LLVMPointerTypeInContext(self.context, 0),
-                Type::Fn {
+                Type::Fn(FnType {
                     parameters,
                     return_ty,
-                } => {
+                }) => {
                     let mut parameters = parameters
                         .iter()
                         .map(|ty| self.type_to_llvm(*ty))
@@ -418,6 +433,199 @@ impl<'a> Codegen<'a> {
                 }
                 Type::Ref(type_id) => todo!(),
             }
+        }
+    }
+
+    fn eval_instruction(
+        &mut self,
+        builder: *mut LLVMBuilder,
+        mapping: &mut CFGMapping,
+        inst: &Instruction<'a>,
+    ) {
+        unsafe {
+            let value = match inst {
+                Instruction::Add { lhs, rhs, .. } => {
+                    let lhs = mapping.get(*lhs);
+                    let rhs = mapping.get(*rhs);
+
+                    LLVMBuildAdd(builder, lhs, rhs, CString::new("addtmp").unwrap().as_ptr())
+                }
+                Instruction::Sub { lhs, rhs, .. } => {
+                    let lhs = mapping.get(*lhs);
+                    let rhs = mapping.get(*rhs);
+
+                    LLVMBuildSub(builder, lhs, rhs, CString::new("subtmp").unwrap().as_ptr())
+                }
+                Instruction::Mul { lhs, rhs, .. } => {
+                    let lhs = mapping.get(*lhs);
+                    let rhs = mapping.get(*rhs);
+
+                    LLVMBuildMul(builder, lhs, rhs, CString::new("multmp").unwrap().as_ptr())
+                }
+                Instruction::Div { lhs, rhs, .. } => {
+                    let lhs = mapping.get(*lhs);
+                    let rhs = mapping.get(*rhs);
+
+                    LLVMBuildFDiv(builder, lhs, rhs, CString::new("divtmp").unwrap().as_ptr())
+                }
+                Instruction::CmpGt { lhs, rhs, .. } => todo!(),
+                Instruction::CmpLt { lhs, rhs, .. } => todo!(),
+                Instruction::CmpGe { lhs, rhs, .. } => todo!(),
+                Instruction::CmpLe { lhs, rhs, .. } => todo!(),
+                Instruction::CmpEq { lhs, rhs, .. } => todo!(),
+                Instruction::CmpNq { lhs, rhs, .. } => todo!(),
+                Instruction::Negate { value, .. } => todo!(),
+                Instruction::Not { value, .. } => todo!(),
+                Instruction::Load { reg, .. } => todo!(),
+                Instruction::Store { reg, value, .. } => todo!(),
+                Instruction::Ref { value, .. } => todo!(),
+                Instruction::Deref { value, .. } => todo!(),
+                Instruction::Cast {
+                    value, from, to, ..
+                } => {
+                    let value = mapping.get(*value);
+                    let ty = self.type_to_llvm(*to);
+                    let name = CString::new("").unwrap();
+
+                    match (self.tir.ctx.get(*from), self.tir.ctx.get(*to)) {
+                        (Type::Float(_), Type::Int { size, signed }) => {
+                            if signed {
+                                LLVMBuildFPToSI(builder, value, ty, name.as_ptr())
+                            } else {
+                                LLVMBuildFPToUI(builder, value, ty, name.as_ptr())
+                            }
+                        }
+                        (Type::Int { size, signed }, Type::Float(_)) => {
+                            if signed {
+                                LLVMBuildSIToFP(builder, value, ty, name.as_ptr())
+                            } else {
+                                LLVMBuildUIToFP(builder, value, ty, name.as_ptr())
+                            }
+                        }
+                        (Type::Float(FloatKind::F32), Type::Float(FloatKind::F64)) => {
+                            LLVMBuildFPExt(builder, value, ty, name.as_ptr())
+                        }
+                        (Type::Float(FloatKind::F64), Type::Float(FloatKind::F32)) => {
+                            LLVMBuildFPTrunc(builder, value, ty, name.as_ptr())
+                        }
+                        (
+                            Type::Int {
+                                size: s1,
+                                signed: true,
+                            },
+                            Type::Int {
+                                size: s2,
+                                signed: true,
+                            },
+                        ) => {
+                            if s1 < s2 {
+                                LLVMBuildTrunc(builder, value, ty, name.as_ptr())
+                            } else {
+                                LLVMBuildZExt(builder, value, ty, name.as_ptr())
+                            }
+                        }
+                        _ => panic!(),
+                    }
+                }
+                Instruction::CreateStruct { ty, fields } => {
+                    let name = CString::new("").unwrap();
+                    let alloca = LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr());
+
+                    for (idx, (field, ty)) in fields.iter().enumerate() {
+                        let name = CString::new("").unwrap();
+                        let alloca = LLVMBuildStructGEP2(
+                            builder,
+                            self.type_to_llvm(*ty),
+                            alloca,
+                            idx as u32,
+                            name.as_ptr(),
+                        );
+
+                        LLVMBuildStore(builder, mapping.get(*field), alloca);
+                    }
+
+                    alloca
+                }
+                Instruction::StructStore { field, value, .. } => {
+                    LLVMBuildStore(builder, mapping.get(*value), mapping.get(*field))
+                }
+                Instruction::StructLoad {
+                    r#struct, idx, ty, ..
+                } => {
+                    let name = CString::new("").unwrap();
+                    LLVMBuildStructGEP2(
+                        builder,
+                        self.type_to_llvm(*ty),
+                        mapping.get(*r#struct),
+                        *idx as u32,
+                        name.as_ptr(),
+                    )
+                }
+                Instruction::Call { func, args, .. } => {
+                    let ty = self.type_to_llvm(self.tir.get_func(*func).ty.return_ty);
+
+                    let func = self.functions_mapping[*func];
+                    let mut args = args.iter().map(|arg| mapping.get(*arg)).collect_vec();
+
+                    LLVMBuildCall2(
+                        builder,
+                        ty,
+                        func,
+                        args.as_mut_ptr(),
+                        args.len() as u32,
+                        CString::new("").unwrap().as_ptr(),
+                    )
+                }
+                Instruction::Integer(value, ty) => LLVMConstIntOfString(
+                    self.type_to_llvm(*ty),
+                    CString::new(*value).unwrap().as_ptr(),
+                    10,
+                ),
+                Instruction::Float(value, ty) => LLVMConstRealOfString(
+                    self.type_to_llvm(*ty),
+                    CString::new(*value).unwrap().as_ptr(),
+                ),
+                Instruction::Bool(value) => LLVMConstInt(
+                    LLVMInt8TypeInContext(self.context),
+                    *value as u64,
+                    false as i32,
+                ),
+                Instruction::String(value) => {
+                    let ty =
+                        LLVMArrayType2(LLVMInt8TypeInContext(self.context), value.len() as u64);
+
+                    let name = CString::new(format!("global_string_{}", 0)).unwrap();
+                    let global = LLVMAddGlobal(self.module, ty, name.as_ptr());
+
+                    LLVMSetLinkage(global, LLVMLinkage::LLVMInternalLinkage);
+                    LLVMSetGlobalConstant(global, true as i32);
+
+                    let text = CString::new(*value).unwrap();
+                    let value =
+                        LLVMConstString(text.as_ptr(), text.count_bytes() as u32, false as i32);
+
+                    LLVMSetInitializer(global, value);
+
+                    global
+                }
+            };
+
+            mapping.push(value);
+        };
+    }
+
+    fn eval_cfg(&mut self, function: *mut LLVMValue, cfg: &CFG<'a>) {
+        let mut mapping = CFGMapping::new();
+
+        for (idx, bb) in cfg.blocks.iter().enumerate() {
+            let llvmName = CString::new(format!("bb{}", idx)).unwrap();
+            let llvmBB =
+                unsafe { LLVMAppendBasicBlockInContext(self.context, function, llvmName.as_ptr()) };
+            unsafe { LLVMPositionBuilderAtEnd(self.builder, llvmBB) };
+
+            bb.instructions
+                .iter()
+                .for_each(|inst| self.eval_instruction(self.builder, &mut mapping, inst));
         }
     }
 
@@ -460,26 +668,27 @@ impl<'a> Codegen<'a> {
                     }
                 }
             }
-            Node::Type { ident, args, body } => {
-                let ty = self.type_to_llvm(self.ast.get_type_id(body));
-                let ident = self.get_ident(ident);
-                self.scopes.push(ident, Def::Type(ty));
-            }
+            Node::Type { ident, args, body } => {}
             _ => {}
         }
     }
 
     pub fn run(mut self) {
-        match self.ast.root {
-            Some(node) => match self.ast.get_node(node) {
-                Node::TopLevelScope(lst) => {
-                    for node in lst {
-                        self.eval_toplevel(node);
-                    }
-                }
-                _ => {}
-            },
-            None => {}
+        for &TypeDef { ty, .. } in self.tir.type_iter() {
+            self.type_to_llvm(ty);
+        }
+
+        for func in self.tir.func_iter() {
+            let ident = CString::new(func.name).unwrap();
+            let function = unsafe {
+                let return_ty = self.type_to_llvm(func.ty.return_ty);
+                let function_type = LLVMFunctionType(return_ty, std::ptr::null_mut(), 0, 0);
+                LLVMAddFunction(self.module, ident.as_ptr(), function_type)
+            };
+
+            self.functions_mapping.push(function);
+
+            unsafe { self.eval_cfg(function, &func.block) };
         }
 
         unsafe {
