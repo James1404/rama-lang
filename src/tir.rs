@@ -3,7 +3,7 @@
 use std::fmt::Display;
 
 use derive_more::Display;
-use typed_index_collections::{TiVec, ti_vec};
+use typed_index_collections::TiVec;
 
 use crate::types::{FnType, Type, TypeContext, TypeID};
 
@@ -88,12 +88,16 @@ pub enum Instruction<'a> {
         value: Ref,
     },
 
-    Load {
+    MakeVar {
         dest: Ref,
-        reg: Ref,
+        ty: TypeID,
     },
-    Store {
-        reg: Ref,
+    ReadVar {
+        dest: Ref,
+        var: Ref,
+    },
+    WriteVar {
+        var: Ref,
         value: Ref,
     },
 
@@ -114,32 +118,27 @@ pub enum Instruction<'a> {
         to: TypeID,
     },
 
-    CreateStruct {
+    MakeStruct {
         dest: Ref,
         ty: TypeID,
-        fields: Vec<(Ref, TypeID)>,
     },
-    GetStructField {
+    ReadField {
         dest: Ref,
         r#struct: Ref,
-        idx: usize,
+        field: usize,
         ty: TypeID,
     },
-
-    FuncRef {
-        dest: Ref,
-        index: FuncRef,
-    },
-    TypeRef {
-        dest: Ref,
-        index: TypeRef,
+    WriteField {
+        r#struct: Ref,
+        field: usize,
+        value: Ref,
+        ty: TypeID,
     },
 
     Call {
         dest: Ref,
-        func: Ref,
+        func: FuncRef,
         args: Vec<Ref>,
-        ty: TypeID,
     },
 
     // Values
@@ -163,9 +162,20 @@ pub enum Instruction<'a> {
     },
 }
 
-impl<'a> Display for Instruction<'a> {
+impl<'a> Instruction<'a> {
+    fn display(&'a self, tir: &'a TIR<'a>) -> InstructionFmt<'a> {
+        InstructionFmt { tir, inst: self }
+    }
+}
+
+pub struct InstructionFmt<'a> {
+    tir: &'a TIR<'a>,
+    inst: &'a Instruction<'a>,
+}
+
+impl<'a> Display for InstructionFmt<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
+        match self.inst {
             Instruction::Add { dest, lhs, rhs } => write!(f, "{} = {} + {}", dest, lhs, rhs),
             Instruction::Sub { dest, lhs, rhs } => write!(f, "{} = {} - {}", dest, lhs, rhs),
             Instruction::Mul { dest, lhs, rhs } => write!(f, "{} = {} * {}", dest, lhs, rhs),
@@ -178,32 +188,35 @@ impl<'a> Display for Instruction<'a> {
             Instruction::CmpNq { dest, lhs, rhs } => write!(f, "{} = {} != {}", dest, lhs, rhs),
             Instruction::Negate { dest, value } => write!(f, "{} = -{}", dest, value),
             Instruction::Not { dest, value } => write!(f, "{} = !{}", dest, value),
-            Instruction::Load { dest, reg } => write!(f, "{} = load {}", dest, reg),
-            Instruction::Store { reg, value } => write!(f, "{} = {}", reg, value),
+
+            Instruction::MakeVar { dest, ty } => write!(f, "{} = make_var", dest),
+            Instruction::ReadVar { dest, var } => write!(f, "{} = read_var {}", dest, var),
+            Instruction::WriteVar { var, value } => write!(f, "var {} =  {}", var, value),
+
             Instruction::Ref { dest, value } => write!(f, "{} = ref {}", dest, value),
             Instruction::Deref { dest, value } => write!(f, "{} = deref {}", dest, value),
             Instruction::Cast {
                 dest, value, to, ..
-            } => write!(f, "{} = {} as {}", dest, value, to),
-            Instruction::CreateStruct { dest, fields, .. } => {
-                write!(f, "{} = struct {{", dest)?;
-                for field in fields {
-                    write!(f, "{},", field.0)?;
-                }
-                write!(f, "}}")
+            } => write!(f, "{} = {} as {}", dest, value, self.tir.ctx.display(*to)),
+
+            Instruction::MakeStruct { dest, ty } => {
+                write!(f, "{} = make {}", dest, self.tir.ctx.display(*ty))
             }
-            Instruction::GetStructField {
+            Instruction::ReadField {
                 dest,
                 r#struct,
-                idx,
-                ..
-            } => write!(f, "{} = getstructfield {} {}", dest, r#struct, idx),
-            Instruction::FuncRef { dest, index } => write!(f, "{} = func_ref({})", dest, index.0),
-            Instruction::TypeRef { dest, index } => write!(f, "{} = type_ref({})", dest, index.0),
-            Instruction::Call {
-                dest, func, args, ..
-            } => {
-                write!(f, "{} = call {} (", dest, func)?;
+                field,
+                ty: _,
+            } => write!(f, "{} = {}.{}", dest, r#struct, field),
+            Instruction::WriteField {
+                r#struct,
+                field,
+                value,
+                ty: _,
+            } => write!(f, "{}.{} = {}", r#struct, field, value),
+
+            Instruction::Call { dest, func, args } => {
+                write!(f, "{} = call {} (", dest, self.tir.get_func(*func).name)?;
 
                 for arg in args {
                     write!(f, "{}, ", arg)?;
@@ -211,10 +224,14 @@ impl<'a> Display for Instruction<'a> {
 
                 write!(f, ")")
             }
-            Instruction::Integer { dest, value, .. } => write!(f, "{} = int {}", dest, value),
-            Self::Float { dest, value, .. } => write!(f, "{} = float {}", dest, value),
+            Instruction::Integer { dest, value, ty } => {
+                write!(f, "{} = {}({})", dest, self.tir.ctx.display(*ty), value)
+            }
+            Instruction::Float { dest, value, ty } => {
+                write!(f, "{} = {}({})", dest, self.tir.ctx.display(*ty), value)
+            }
             Instruction::Bool { dest, value } => write!(f, "{} = {}", dest, value),
-            Instruction::String { dest, value } => write!(f, "{} = {}", dest, value),
+            Instruction::String { dest, value } => write!(f, "{} = string \"{}\"", dest, value),
         }
     }
 }
@@ -248,7 +265,6 @@ pub struct BasicBlock<'a> {
     pub terminator: Terminator,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct CFG<'a> {
     pub blocks: TiVec<Loc, BasicBlock<'a>>,
@@ -272,7 +288,6 @@ pub struct Func<'a> {
     pub cfg: CFG<'a>,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct TIR<'a> {
     pub funcs: TiVec<FuncRef, Func<'a>>,
@@ -281,13 +296,8 @@ pub struct TIR<'a> {
 }
 
 impl<'a> TIR<'a> {
-    pub fn get_func(&self, index: FuncRef) -> FnType {
-        let func = &self.funcs[index];
-
-        match self.ctx.get(func.ty) {
-            Type::Fn(func) => func,
-            _ => panic!(),
-        }
+    pub fn get_func(&self, index: FuncRef) -> &Func<'a> {
+        &self.funcs[index]
     }
 
     pub fn func_iter(&self) -> std::iter::Cloned<std::slice::Iter<'_, Func<'a>>> {
@@ -326,7 +336,7 @@ impl<'a> TIR<'a> {
                 println!("bb.{}:", idx.0);
 
                 for inst in &bb.instructions {
-                    println!("\t{}", inst);
+                    println!("\t{}", inst.display(self));
                 }
 
                 println!("\t{}", bb.terminator);

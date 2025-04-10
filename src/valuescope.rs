@@ -45,7 +45,6 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
                 None => None,
             },
         }
-
     }
 
     pub fn get(&self, key: &'a str) -> Option<T> {
@@ -70,5 +69,41 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
             panic!();
         };
         self.current = parent;
+    }
+
+    pub fn iter(&'a self) -> Iterator<'a, T> {
+        let current = self.get_index(self.current);
+        Iterator {
+            current_scope: self.current,
+            data_iter: current.data.iter(),
+            arena: self,
+        }
+    }
+}
+
+pub struct Iterator<'a, T: Clone> {
+    current_scope: Index,
+    data_iter: std::collections::hash_map::Iter<'a, &'a str, T>,
+    arena: &'a ScopeArena<'a, T>,
+}
+
+impl<'a, T: Clone> std::iter::Iterator for Iterator<'a, T> {
+    type Item = (&'a str, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some((name, item)) = self.data_iter.next() {
+            return Some((*name, item.clone()));
+        }
+
+        let current = self.arena.get_index(self.current_scope);
+        match current.parent {
+            Some(parent) => {
+                let current = self.arena.get_index(parent);
+                self.current_scope = parent;
+                self.data_iter = current.data.iter();
+                self.next()
+            }
+            None => None,
+        }
     }
 }

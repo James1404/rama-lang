@@ -198,8 +198,16 @@ impl<'a> Codegen<'a> {
                 Instruction::CmpNq { .. } => todo!(),
                 Instruction::Negate { .. } => todo!(),
                 Instruction::Not { .. } => todo!(),
-                Instruction::Load { .. } => todo!(),
-                Instruction::Store { reg, value } => mapping.get(*value),
+                Instruction::MakeVar { dest, ty } => {
+                    let name = CString::new("").unwrap();
+                    LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr())
+                }
+                Instruction::ReadVar { dest, var } => mapping.get(*var),
+                Instruction::WriteVar { var, value } => {
+                    let var = mapping.get(*var);
+                    let value = mapping.get(*value);
+                    LLVMBuildStore(builder, value, var)
+                }
                 Instruction::Ref { .. } => todo!(),
                 Instruction::Deref { .. } => todo!(),
                 Instruction::Cast {
@@ -249,45 +257,50 @@ impl<'a> Codegen<'a> {
                         _ => panic!(),
                     }
                 }
-                Instruction::CreateStruct { ty, fields, .. } => {
+                Instruction::MakeStruct { dest: _, ty } => {
                     let name = CString::new("").unwrap();
-                    let alloca = LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr());
+                    LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr())
+                }
+                Instruction::WriteField {
+                    r#struct,
+                    field,
+                    value,
+                    ty,
+                } => {
+                    let alloca = mapping.get(*r#struct);
 
-                    for (idx, (field, ty)) in fields.iter().enumerate() {
-                        let name = CString::new("").unwrap();
-                        let alloca = LLVMBuildStructGEP2(
-                            builder,
-                            self.type_to_llvm(*ty),
-                            alloca,
-                            idx as u32,
-                            name.as_ptr(),
-                        );
+                    let name = CString::new("").unwrap();
+                    let alloca = LLVMBuildStructGEP2(
+                        builder,
+                        self.type_to_llvm(*ty),
+                        alloca,
+                        *field as u32,
+                        name.as_ptr(),
+                    );
 
-                        LLVMBuildStore(builder, mapping.get(*field), alloca);
-                    }
+                    LLVMBuildStore(builder, mapping.get(*value), alloca);
 
                     alloca
                 }
-                Instruction::GetStructField {
-                    r#struct, idx, ty, ..
+                Instruction::ReadField {
+                    r#struct,
+                    field,
+                    ty,
+                    ..
                 } => {
                     let name = CString::new("").unwrap();
                     LLVMBuildStructGEP2(
                         builder,
                         self.type_to_llvm(*ty),
                         mapping.get(*r#struct),
-                        *idx as u32,
+                        *field as u32,
                         name.as_ptr(),
                     )
                 }
 
-                Instruction::FuncRef { index, .. } => self.functions_mapping[*index],
-                Instruction::TypeRef { .. } => todo!(),
-
-                Instruction::Call { func, args, ty, .. } => {
-                    let ty = self.type_to_llvm(*ty);
-
-                    let func = mapping.get(*func);
+                Instruction::Call { func, args, .. } => {
+                    let ty = self.type_to_llvm(self.tir.get_func(*func).ty);
+                    let func = self.functions_mapping[*func];
                     let mut args = args.iter().map(|arg| mapping.get(*arg)).collect_vec();
 
                     LLVMBuildCall2(
@@ -445,7 +458,8 @@ impl<'a> Codegen<'a> {
             let builder = LLVMCreatePassBuilderOptions();
             LLVMPassBuilderOptionsSetDebugLogging(builder, true as i32);
 
-            let passes = CString::new("mem2reg").unwrap();
+            let passes =
+                CString::new("instcombine, reassociate, gvn, simplifycfg, mem2reg").unwrap();
 
             LLVMRunPasses(self.module, passes.as_ptr(), target_machine, builder);
 

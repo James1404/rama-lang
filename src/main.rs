@@ -11,6 +11,7 @@ use parser::Parser;
 
 use clap::{Command, Parser as ClapParser, Subcommand};
 use sema::Sema;
+use tirbuilder::TIRBuilder;
 
 mod metadata;
 mod lexer;
@@ -97,9 +98,14 @@ where
 
     tast.print();
 
-    // println!("<== Starting CodeGen ==>");
-    // let backend = backend::llvm::Codegen::new(tir, metadata);
-    // backend.run();
+    let tirbuilder = TIRBuilder::new(tast);
+    let tir = tirbuilder.build();
+
+    tir.pretty_print();
+
+    println!("<== Starting CodeGen ==>");
+    let backend = backend::llvm::Codegen::new(tir, metadata);
+    backend.run();
 
     Ok(())
 }

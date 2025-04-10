@@ -7,7 +7,7 @@ use crate::{
     ast::{ASTView, Literal, Node, Ref},
     lexer::TokenType,
     typed_ast::{TypeMetadata, TypedAST},
-    types::{ADTKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID, ADT},
+    types::{ADT, ADTKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID},
     valuescope::ScopeArena,
 };
 
@@ -203,14 +203,14 @@ impl<'ast> Sema<'ast> {
 
                 match self.ctx.get(ty) {
                     Type::ADT(ADT {
-                        kind,
+                        kind: _,
                         fields,
-                        generic_args,
+                        generic_args: _,
                     }) => {
                         if let Some(field) = fields.iter().find(|f| f.ident == field) {
                             Ok(field.ty.unwrap())
                         } else {
-                            panic!("Doesnt have field")
+                            Err(SemaError::Err("Doesnt have field".to_owned()))
                         }
                     }
                     _ => panic!("Fixme"),
@@ -453,6 +453,7 @@ impl<'ast> Sema<'ast> {
                 self.metadata.set(node, ty);
             }
 
+            Node::ReturnNone => {}
             Node::Return(value) => {
                 let Some(frame) = self.callstack.last() else {
                     return Err(SemaError::CannotReturnOutsideOfFunction);

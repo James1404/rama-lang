@@ -3,8 +3,8 @@ type string = [u8];
 type person = struct { age: i32; };
 
 fn read(filename: string) i32 {
-   var james: person = .{ age: 19 };
-   james.age = 20;
+   var nathan: person = .{ age: 19 };
+   nathan.age = 20;
 
    const name = "james";
 

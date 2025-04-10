@@ -14,7 +14,7 @@ pub struct TypeMetadata {
 impl TypeMetadata {
     pub fn new(ast: ASTView) -> Self {
         Self {
-            data: (0..ast.len()).map(|x| None).collect(),
+            data: (0..ast.len()).map(|_| None).collect(),
             root: None,
         }
     }
@@ -57,7 +57,7 @@ impl<'a> TypedAST<'a> {
         }
     }
 
-    pub fn get_node(&self, node: Ref) -> Node {
+    pub fn get_node(&self, node: Ref) -> Node<'a> {
         self.ast.get(node)
     }
 
@@ -70,7 +70,7 @@ impl<'a> TypedAST<'a> {
         self.context.get(ty)
     }
 
-    pub fn get(&self, index: Ref) -> (Node, TypeID) {
+    pub fn get(&self, index: Ref) -> (Node<'a>, TypeID) {
         (self.get_node(index), self.get_type_id(index))
     }
 }
