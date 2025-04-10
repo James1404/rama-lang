@@ -315,19 +315,25 @@ impl<'ast> Sema<'ast> {
 
                 match self.ctx.get(value.1) {
                     Type::ADT(ADT { fields, .. }) => {
-                        if let Some((idx, field)) = fields.iter().find_position(|f| f.ident == field) {
+                        if let Some((idx, field)) =
+                            fields.iter().find_position(|f| f.ident == field)
+                        {
                             let ty = field.ty.unwrap();
                             let dest = cfg.reg();
-                            cfg.append(Instruction::GetStructField { dest, r#struct: value.0, idx, ty });
+                            cfg.append(Instruction::GetStructField {
+                                dest,
+                                r#struct: value.0,
+                                idx,
+                                ty,
+                            });
                             Ok((dest, ty))
-                        }
-                        else {
+                        } else {
                             panic!("Doesnt have field")
                         }
-                    },
-                    _ => Err(SemaError::Err("Field does not exist on struct".to_owned()))
+                    }
+                    _ => Err(SemaError::Err("Field does not exist on struct".to_owned())),
                 }
-            },
+            }
 
             Node::FnCall { func, args } => {
                 let func = self.infer(cfg, func)?;
@@ -572,6 +578,10 @@ impl<'ast> Sema<'ast> {
             Node::Assignment { ident, value } => {
                 let ty = self.infer(cfg, ident)?;
                 self.check(cfg, value, ty.1)?;
+            }
+
+            Node::ReturnNone => {
+                cfg.finish_block(Terminator::ReturnNone);
             }
 
             Node::Return(value) => {

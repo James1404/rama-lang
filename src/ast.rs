@@ -90,6 +90,7 @@ pub enum Node<'a> {
 
     Import(&'a str),
 
+    ReturnNone,
     Return(Ref),
     ImplicitReturn(Ref),
 
@@ -294,6 +295,7 @@ impl<'a> ASTView<'a> {
             Node::Import(path) => {
                 out!(indentation + 1, "{}", path);
             }
+            Node::ReturnNone => {},
             Node::Return(value) => self.print(value, indentation + 1),
             Node::ImplicitReturn(value) => self.print(value, indentation + 1),
             Node::Dot { lhs, ident } => {

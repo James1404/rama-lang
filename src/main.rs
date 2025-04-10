@@ -12,15 +12,17 @@ use parser::Parser;
 use clap::{Command, Parser as ClapParser, Subcommand};
 use sema::Sema;
 
-mod ast;
-mod backend;
-mod lexer;
 mod metadata;
+mod lexer;
+mod ast;
 mod parser;
 mod sema;
-mod tir;
 mod types;
 mod valuescope;
+mod typed_ast;
+mod tir;
+mod tirgen;
+mod backend;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]

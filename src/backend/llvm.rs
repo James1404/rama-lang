@@ -348,7 +348,17 @@ impl<'a> Codegen<'a> {
                 Terminator::Goto(loc) => {
                     LLVMBuildBr(builder, mapping.get_bb(*loc));
                 }
-                Terminator::If { .. } => todo!(),
+                Terminator::If { cond, t, f } => {
+                    LLVMBuildCondBr(
+                        builder,
+                        mapping.get(*cond),
+                        mapping.get_bb(*t),
+                        mapping.get_bb(*f),
+                    );
+                }
+                Terminator::ReturnNone => {
+                    LLVMBuildRetVoid(builder);
+                }
                 Terminator::Return(value) => {
                     LLVMBuildRet(builder, mapping.get(*value));
                 }

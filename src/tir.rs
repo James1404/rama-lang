@@ -223,6 +223,7 @@ impl<'a> Display for Instruction<'a> {
 pub enum Terminator {
     Goto(Loc),
     If { cond: Ref, t: Loc, f: Loc },
+    ReturnNone,
     Return(Ref),
     ImplicitReturn(Ref),
 }
@@ -234,6 +235,7 @@ impl Display for Terminator {
             Terminator::If { cond, t, f } => {
                 write!(fmt, "if {} then goto {} else goto {}", cond, t, f)
             }
+            Terminator::ReturnNone => write!(fmt, "return"),
             Terminator::Return(value) => write!(fmt, "return {}", value),
             Terminator::ImplicitReturn(value) => write!(fmt, "implicit_return {}", value),
         }
