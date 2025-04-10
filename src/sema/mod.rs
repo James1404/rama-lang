@@ -4,23 +4,24 @@ pub mod error;
 mod frame;
 
 use crate::{
-    ast::{self, ASTView, Literal, Node},
+    ast::{ASTView, Literal, Node, Ref},
     lexer::TokenType,
-    tir::{CFGBuilder, FuncRef, Instruction, Ref, TIR, TIRBuilder, Terminator, TypeRef},
-    types::{ADT, ADTKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID},
+    typed_ast::{TypeMetadata, TypedAST},
+    types::{ADTKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID, ADT},
     valuescope::ScopeArena,
 };
 
 pub use error::{Result, SemaError};
 use frame::Frame;
 use itertools::{Itertools, izip};
+use log::info;
 
 #[derive(Debug, Clone)]
 enum Def {
-    Const(Ref, TypeID),
-    Var(Ref, TypeID),
-    Fn(FuncRef, TypeID),
-    Type(TypeRef, TypeID),
+    Const(TypeID),
+    Var(TypeID),
+    Fn(TypeID),
+    Type(TypeID),
 }
 
 type Scope<'a> = ScopeArena<'a, Def>;
@@ -32,19 +33,18 @@ pub struct Sema<'ast> {
     ctx: TypeContext<'ast>,
     callstack: Vec<Frame>,
 
-    builder: TIRBuilder<'ast>,
+    metadata: TypeMetadata,
 }
 
 impl<'ast> Sema<'ast> {
     pub fn new(ast: ASTView<'ast>) -> Self {
-        let ctx = TypeContext::new();
-
         Self {
             ast,
-            ctx,
+            ctx: TypeContext::new(),
             scopes: Scope::new(),
             callstack: vec![],
-            builder: TIRBuilder::new(),
+
+            metadata: TypeMetadata::new(ast),
         }
     }
 
@@ -76,123 +76,71 @@ impl<'ast> Sema<'ast> {
         }
     }
 
-    fn add(
-        &mut self,
-        cfg: &mut CFGBuilder<'ast>,
-        lterm: ast::Ref,
-        rterm: ast::Ref,
-    ) -> Result<'ast, (Ref, TypeID)> {
-        let lhs = self.infer(cfg, lterm)?;
-        let rhs = self.infer(cfg, rterm)?;
-        let dest = cfg.reg();
+    fn add(&mut self, lterm: Ref, rterm: Ref) -> Result<'ast, TypeID> {
+        let t1 = self.infer(lterm)?;
+        let t2 = self.infer(rterm)?;
 
-        cfg.append(Instruction::Add {
-            dest,
-            lhs: lhs.0,
-            rhs: rhs.0,
-        });
-
-        match (self.ctx.get(lhs.1), self.ctx.get(rhs.1)) {
-            (Type::Int { .. }, Type::Int { .. }) => Ok((dest, lhs.1)),
-            (Type::Float(_), Type::Float(_)) => Ok((dest, lhs.1)),
+        match (self.ctx.get(t1), self.ctx.get(t2)) {
+            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
+            (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
                 "Cannot add types {} and {}",
-                self.ctx.display(lhs.1),
-                self.ctx.display(rhs.1)
+                self.ctx.display(t1),
+                self.ctx.display(t2)
             ))),
         }
     }
 
-    fn sub(
-        &mut self,
-        cfg: &mut CFGBuilder<'ast>,
-        lterm: ast::Ref,
-        rterm: ast::Ref,
-    ) -> Result<'ast, (Ref, TypeID)> {
-        let lhs = self.infer(cfg, lterm)?;
-        let rhs = self.infer(cfg, rterm)?;
-        let dest = cfg.reg();
+    fn sub(&mut self, lterm: Ref, rterm: Ref) -> Result<'ast, TypeID> {
+        let t1 = self.infer(lterm)?;
+        let t2 = self.infer(rterm)?;
 
-        cfg.append(Instruction::Sub {
-            dest,
-            lhs: lhs.0,
-            rhs: rhs.0,
-        });
-
-        match (self.ctx.get(lhs.1), self.ctx.get(rhs.1)) {
-            (Type::Int { .. }, Type::Int { .. }) => Ok((dest, lhs.1)),
-            (Type::Float(_), Type::Float(_)) => Ok((dest, lhs.1)),
+        match (self.ctx.get(t1), self.ctx.get(t2)) {
+            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
+            (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
                 "Cannot subtract types {} and {}",
-                self.ctx.display(lhs.1),
-                self.ctx.display(rhs.1)
+                self.ctx.display(t1),
+                self.ctx.display(t2)
             ))),
         }
     }
 
-    fn mul(
-        &mut self,
-        cfg: &mut CFGBuilder<'ast>,
-        lterm: ast::Ref,
-        rterm: ast::Ref,
-    ) -> Result<'ast, (Ref, TypeID)> {
-        let lhs = self.infer(cfg, lterm)?;
-        let rhs = self.infer(cfg, rterm)?;
-        let dest = cfg.reg();
+    fn mul(&mut self, lterm: Ref, rterm: Ref) -> Result<'ast, TypeID> {
+        let t1 = self.infer(lterm)?;
+        let t2 = self.infer(rterm)?;
 
-        cfg.append(Instruction::Mul {
-            dest,
-            lhs: lhs.0,
-            rhs: rhs.0,
-        });
-
-        match (self.ctx.get(lhs.1), self.ctx.get(rhs.1)) {
-            (Type::Int { .. }, Type::Int { .. }) => Ok((dest, lhs.1)),
-            (Type::Float(_), Type::Float(_)) => Ok((dest, lhs.1)),
+        match (self.ctx.get(t1), self.ctx.get(t2)) {
+            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
+            (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
                 "Cannot multiply types {} and {}",
-                self.ctx.display(lhs.1),
-                self.ctx.display(rhs.1)
+                self.ctx.display(t1),
+                self.ctx.display(t2)
             ))),
         }
     }
 
-    fn div(
-        &mut self,
-        cfg: &mut CFGBuilder<'ast>,
-        lterm: ast::Ref,
-        rterm: ast::Ref,
-    ) -> Result<'ast, (Ref, TypeID)> {
-        let lhs = self.infer(cfg, lterm)?;
-        let rhs = self.infer(cfg, rterm)?;
-        let dest = cfg.reg();
+    fn div(&mut self, lterm: Ref, rterm: Ref) -> Result<'ast, TypeID> {
+        let t1 = self.infer(lterm)?;
+        let t2 = self.infer(rterm)?;
 
-        cfg.append(Instruction::Div {
-            dest,
-            lhs: lhs.0,
-            rhs: rhs.0,
-        });
-
-        match (self.ctx.get(lhs.1), self.ctx.get(rhs.1)) {
-            (Type::Int { .. }, Type::Int { .. }) => Ok((dest, lhs.1)),
-            (Type::Float(_), Type::Float(_)) => Ok((dest, lhs.1)),
+        match (self.ctx.get(t1), self.ctx.get(t2)) {
+            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
+            (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
                 "Cannot divide types {} and {}",
-                self.ctx.display(lhs.1),
-                self.ctx.display(rhs.1)
+                self.ctx.display(t1),
+                self.ctx.display(t2)
             ))),
         }
     }
 
-    fn check(
-        &mut self,
-        cfg: &mut CFGBuilder<'ast>,
-        term: ast::Ref,
-        against: TypeID,
-    ) -> Result<'ast, Ref> {
-        let (reg, ty) = self.infer(cfg, term)?;
+    fn check(&mut self, term: Ref, against: TypeID) -> Result<'ast, TypeID> {
+        let ty = self.infer(term)?;
         if self.subtype(ty, against) {
-            Ok(reg)
+            self.metadata.set(term, ty);
+            Ok(ty)
         } else {
             Err(SemaError::Err(format!(
                 "Type {} is not compatible with {}",
@@ -202,230 +150,150 @@ impl<'ast> Sema<'ast> {
         }
     }
 
-    fn infer(&mut self, cfg: &mut CFGBuilder<'ast>, term: ast::Ref) -> Result<'ast, (Ref, TypeID)> {
-        match self.ast.get(term) {
+    fn infer(&mut self, term: Ref) -> Result<'ast, TypeID> {
+        let ty = match self.ast.get(term) {
             Node::Binary { lhs, rhs, op } => match op.ty {
-                TokenType::Plus => self.add(cfg, lhs, rhs),
-                TokenType::Minus => self.sub(cfg, lhs, rhs),
-                TokenType::Asterix => self.mul(cfg, lhs, rhs),
-                TokenType::Slash => self.div(cfg, lhs, rhs),
+                TokenType::Plus => self.add(lhs, rhs),
+                TokenType::Minus => self.sub(lhs, rhs),
+                TokenType::Asterix => self.mul(lhs, rhs),
+                TokenType::Slash => self.div(lhs, rhs),
                 _ => Err(SemaError::InvalidType),
             },
             Node::Unary { value, op } => match op.ty {
-                TokenType::Plus | TokenType::MinusEq => {
-                    let dest = cfg.reg();
-                    let value = self.infer(cfg, value)?;
-                    cfg.append(Instruction::Negate {
-                        dest,
-                        value: value.0,
-                    });
-
-                    Ok(value)
-                }
+                TokenType::Plus | TokenType::MinusEq => self.infer(value),
                 _ => Err(SemaError::InvalidTerm(term)),
             },
 
             Node::Literal(lit) => match lit {
-                Literal::String(value) => {
-                    let ty = self
-                        .ctx
-                        .alloc_array(Type::uint(IntSize::Bits8), value.len());
-
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::String { dest, value });
-
-                    Ok((dest, ty))
-                }
-                Literal::Int(value) => {
-                    let ty = self.ctx.alloc(Type::int(IntSize::Bits32));
-
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::Integer { dest, value, ty });
-
-                    Ok((dest, ty))
-                }
-                Literal::Float(value) => {
-                    let ty = self.ctx.alloc(Type::Float(FloatKind::F32));
-
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::Integer { dest, value, ty });
-
-                    Ok((dest, ty))
-                }
-                Literal::Bool(value) => {
-                    let ty = self.ctx.alloc(Type::Bool);
-
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::Bool { dest, value });
-
-                    Ok((dest, ty))
-                }
+                Literal::String(value) => Ok(self
+                    .ctx
+                    .alloc_array(Type::uint(IntSize::Bits8), value.len())),
+                Literal::Int(_) => Ok(self.ctx.alloc(Type::int(IntSize::Bits32))),
+                Literal::Float(_) => Ok(self.ctx.alloc(Type::Float(FloatKind::F32))),
+                Literal::Bool(_) => Ok(self.ctx.alloc(Type::Bool)),
                 Literal::Struct { fields } => {
-                    let mut adt_fields = Vec::<(Field, Ref)>::new();
+                    let mut adt_fields = Vec::<Field>::new();
                     for node in fields {
-                        let value = self.infer(cfg, node.value)?;
-                        adt_fields.push((
-                            Field {
-                                ident: self.get_ident(node.ident)?,
-                                ty: Some(value.1),
-                            },
-                            value.0,
-                        ));
+                        adt_fields.push(Field {
+                            ident: self.get_ident(node.ident)?,
+                            ty: Some(self.infer(node.value)?),
+                        });
                     }
 
                     let adt = ADT {
                         kind: ADTKind::Struct,
-                        fields: adt_fields.iter().map(|f| f.0.clone()).collect(),
+                        fields: adt_fields,
                         generic_args: vec![],
                     };
 
-                    let ty = self.ctx.alloc(Type::ADT(adt));
-
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::CreateStruct {
-                        dest,
-                        ty,
-                        fields: adt_fields
-                            .iter()
-                            .map(|f| (f.1, f.0.ty.unwrap()))
-                            .collect_vec(),
-                    });
-
-                    Ok((dest, ty))
+                    Ok(self.ctx.alloc(Type::ADT(adt)))
                 }
             },
             Node::Ident(ident) => match self.scopes.get(ident.text) {
-                Some(Def::Const(reg, ty)) => Ok((reg, ty)),
-                Some(Def::Var(reg, ty)) => Ok((reg, ty)),
-                Some(Def::Fn(index, ty)) => {
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::FuncRef { dest, index });
-                    Ok((dest, ty))
-                }
-                Some(Def::Type(index, ty)) => {
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::TypeRef { dest, index });
-                    Ok((dest, ty))
-                }
+                Some(Def::Const(ty)) => Ok(ty),
+                Some(Def::Var(ty)) => Ok(ty),
+                Some(Def::Fn(ty)) => Ok(ty),
+                Some(Def::Type(ty)) => Ok(ty),
                 None => Err(SemaError::NotDefined(ident.text)),
             },
+
             Node::FieldAccess(value, field) => {
-                let value = self.infer(cfg, value)?;
+                let ty = self.infer(value)?;
                 let field = self.get_ident(field)?;
 
-                match self.ctx.get(value.1) {
-                    Type::ADT(ADT { fields, .. }) => {
-                        if let Some((idx, field)) =
-                            fields.iter().find_position(|f| f.ident == field)
-                        {
-                            let ty = field.ty.unwrap();
-                            let dest = cfg.reg();
-                            cfg.append(Instruction::GetStructField {
-                                dest,
-                                r#struct: value.0,
-                                idx,
-                                ty,
-                            });
-                            Ok((dest, ty))
+                match self.ctx.get(ty) {
+                    Type::ADT(ADT {
+                        kind,
+                        fields,
+                        generic_args,
+                    }) => {
+                        if let Some(field) = fields.iter().find(|f| f.ident == field) {
+                            Ok(field.ty.unwrap())
                         } else {
                             panic!("Doesnt have field")
                         }
                     }
-                    _ => Err(SemaError::Err("Field does not exist on struct".to_owned())),
+                    _ => panic!("Fixme"),
                 }
             }
 
             Node::FnCall { func, args } => {
-                let func = self.infer(cfg, func)?;
+                let func = self.infer(func)?;
 
                 if let Type::Fn(FnType {
                     parameters,
                     return_ty,
-                }) = self.ctx.get(func.1)
+                }) = self.ctx.get(func)
                 {
                     let args = args
                         .iter()
-                        .map(|arg| self.infer(cfg, *arg))
+                        .map(|arg| self.infer(*arg))
                         .flatten()
                         .collect_vec();
 
-                    for (param, arg) in izip!(parameters, args.clone()) {
-                        if !self.subtype(arg.1, param) {
+                    for (param, arg) in izip!(parameters, args) {
+                        if !self.subtype(arg, param) {
                             return Err(SemaError::Err(format!(
                                 "Argument expected {} but got {}",
                                 self.ctx.display(param),
-                                self.ctx.display(arg.1)
+                                self.ctx.display(arg)
                             )));
                         }
                     }
 
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::Call {
-                        dest,
-                        func: func.0,
-                        args: args.iter().map(|arg| arg.0).collect(),
-                        ty: func.1,
-                    });
-
-                    Ok((dest, return_ty))
+                    Ok(return_ty)
                 } else {
                     Err(SemaError::Err("".to_owned()))
                 }
             }
 
-            Node::Dereference(term) => {
-                let value = self.infer(cfg, term)?;
+            Node::If { cond, t, f } => {
+                let b = self.ctx.alloc(Type::Bool);
+                self.check(cond, b)?;
 
-                let Type::Ptr(inner) = self.ctx.get(value.1) else {
+                let t1 = self.infer(t)?;
+                self.check(f, t1)?;
+
+                Ok(t1)
+            }
+
+            Node::Dereference(term) => {
+                let t = self.infer(term)?;
+
+                let Type::Ptr(inner) = self.ctx.get(t) else {
                     return Err(SemaError::InvalidType);
                 };
 
-                let dest = cfg.reg();
-                cfg.append(Instruction::Deref {
-                    dest,
-                    value: value.0,
-                });
-                Ok((dest, inner))
+                Ok(inner)
             }
             Node::Reference(term) => {
-                let value = self.infer(cfg, term)?;
-                let dest = cfg.reg();
-
-                cfg.append(Instruction::Ref {
-                    dest,
-                    value: value.0,
-                });
-
-                Ok((dest, self.ctx.alloc(Type::Ptr(value.1))))
+                let t = self.infer(term)?;
+                Ok(self.ctx.alloc(Type::Ptr(t)))
             }
 
-            Node::Comptime(term) => self.infer(cfg, term),
+            Node::Comptime(term) => self.infer(term),
 
             Node::Cast { value, ty } => {
-                let value = self.infer(cfg, value)?;
+                let term_ty = self.infer(value)?;
                 let ty = self.term_to_ty(ty, None)?;
-                if self.can_cast(value.1, ty) {
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::Cast {
-                        dest,
-                        value: value.0,
-                        from: value.1,
-                        to: ty,
-                    });
-                    Ok((dest, ty))
+                if self.can_cast(term_ty, ty) {
+                    Ok(ty)
                 } else {
                     Err(SemaError::InvalidCast {
-                        from: value.1,
+                        from: term_ty,
                         into: ty,
                     })
                 }
             }
 
-            node => {
-                dbg!(node);
-                Err(SemaError::InvalidTerm(term))
-            }
+            _ => Err(SemaError::InvalidTerm(term)),
+        };
+
+        if let Ok(ty) = ty {
+            self.metadata.set(term, ty);
         }
+
+        ty
     }
 
     fn can_cast(&self, from: TypeID, into: TypeID) -> bool {
@@ -450,12 +318,8 @@ impl<'ast> Sema<'ast> {
         }
     }
 
-    fn term_to_ty(
-        &mut self,
-        term: ast::Ref,
-        _arguments: Option<Vec<ast::Ref>>,
-    ) -> Result<'ast, TypeID> {
-        Ok(match self.ast.get(term) {
+    fn term_to_ty(&mut self, term: Ref, _arguments: Option<Vec<Ref>>) -> Result<'ast, TypeID> {
+        let ty = match self.ast.get(term) {
             Node::StructType(fields) => {
                 let mut adt_fields = Vec::<Field>::new();
                 for node in fields {
@@ -528,60 +392,65 @@ impl<'ast> Sema<'ast> {
                 "bool" => self.ctx.alloc(Type::Bool),
 
                 text => match self.scopes.get(text) {
-                    Some(Def::Type(_, ty)) => self.ctx.alloc(Type::Ref(ty)),
+                    Some(Def::Type(ty)) => self.ctx.alloc(Type::Ref(ty)),
                     _ => return Err(SemaError::NotDefined(text)),
                 },
             },
             _ => return Err(SemaError::InvalidTerm(term)),
-        })
+        };
+
+        self.metadata.set(term, ty);
+        Ok(ty)
     }
 
-    fn get_ident(&self, node: ast::Ref) -> Result<'ast, &'ast str> {
+    fn get_ident(&self, node: Ref) -> Result<'ast, &'ast str> {
         match self.ast.get(node) {
             Node::Ident(token) => Ok(token.text),
             _ => Err(SemaError::InvalidTerm(node)),
         }
     }
 
-    fn eval(&mut self, cfg: &mut CFGBuilder<'ast>, node: ast::Ref) -> Result<'ast, ()> {
+    fn eval(&mut self, node: Ref) -> Result<'ast, ()> {
         match self.ast.get(node) {
             Node::VarDecl { ident, ty, value } => {
-                let (value, ty) = if let Some(ty) = ty {
+                let ty = if let Some(ty) = ty {
                     let ty = self.term_to_ty(ty, None)?;
-                    let value = self.check(cfg, value, ty)?;
-                    (value, ty)
+                    self.check(value, ty)?;
+                    ty
                 } else {
-                    self.infer(cfg, value)?
+                    self.infer(value)?
                 };
 
                 let ident = self.get_ident(ident)?;
-                self.scopes.push(ident, Def::Var(value, ty));
+                self.scopes.push(ident, Def::Var(ty));
+                self.metadata.set(node, ty);
             }
             Node::ConstDecl { ident, ty, value } => {
-                let (value, ty) = if let Some(ty) = ty {
+                let ty = if let Some(ty) = ty {
                     let ty = self.term_to_ty(ty, None)?;
-                    let value = self.check(cfg, value, ty)?;
-                    (value, ty)
+
+                    self.check(value, ty)?;
+                    ty
                 } else {
-                    self.infer(cfg, value)?
+                    self.infer(value)?
                 };
 
+                info!("{:?}", self.ctx.get(ty));
+
                 let ident = self.get_ident(ident)?;
-                self.scopes.push(ident, Def::Var(value, ty));
+                self.scopes.push(ident, Def::Const(ty));
+                self.metadata.set(node, ty);
             }
 
             Node::Scope(lst) => {
                 for node in lst {
-                    self.eval(cfg, node)?;
+                    self.eval(node)?;
                 }
             }
             Node::Assignment { ident, value } => {
-                let ty = self.infer(cfg, ident)?;
-                self.check(cfg, value, ty.1)?;
-            }
-
-            Node::ReturnNone => {
-                cfg.finish_block(Terminator::ReturnNone);
+                let ty = self.infer(ident)?;
+                self.check(value, ty)?;
+                self.metadata.set(node, ty);
             }
 
             Node::Return(value) => {
@@ -591,22 +460,50 @@ impl<'ast> Sema<'ast> {
 
                 match frame.return_type {
                     Some(return_type) => {
-                        let value = self.check(cfg, value, return_type)?;
-                        cfg.finish_block(Terminator::Return(value));
+                        self.check(value, return_type)?;
+                        self.metadata.set(node, return_type);
                     }
                     None => return Err(SemaError::FunctionDoesNotHaveReturnType),
                 }
             }
             _ => {
-                self.infer(cfg, node)?;
+                self.infer(node)?;
             }
         }
 
         Ok(())
     }
 
-    fn eval_toplevel(&mut self, node: ast::Ref) -> Result<'ast, ()> {
+    fn eval_toplevel(&mut self, node: Ref) -> Result<'ast, ()> {
         match self.ast.get(node) {
+            Node::VarDecl { ident, ty, value } => {
+                let ty = if let Some(ty) = ty {
+                    let ty = self.term_to_ty(ty, None)?;
+                    self.check(value, ty)?;
+                    ty
+                } else {
+                    self.infer(value)?
+                };
+
+                let ident = self.get_ident(ident)?;
+                self.scopes.push(ident, Def::Var(ty));
+
+                self.metadata.set(node, ty);
+            }
+            Node::ConstDecl { ident, ty, value } => {
+                let ty = if let Some(ty) = ty {
+                    let ty = self.term_to_ty(ty, None)?;
+                    self.check(value, ty)?;
+                    ty
+                } else {
+                    self.infer(value)?
+                };
+
+                let ident = self.get_ident(ident)?;
+                self.scopes.push(ident, Def::Const(ty));
+
+                self.metadata.set(node, ty);
+            }
             Node::FnDecl {
                 ident,
                 params,
@@ -635,20 +532,19 @@ impl<'ast> Sema<'ast> {
                     return_type: Some(returnty),
                 });
 
-                let func_ref = self.builder.func_ref();
-                self.scopes.push(ident, Def::Fn(func_ref, ty));
+                self.scopes.push(ident, Def::Fn(ty));
 
-                let mut cfg = CFGBuilder::new();
-                self.eval(&mut cfg, block)?;
-                self.builder.append_func(ident, ty, cfg.build());
+                self.eval(block)?;
+
+                self.metadata.set(node, ty);
             }
             Node::Type { ident, args, body } => {
                 let ident = self.get_ident(ident)?;
                 let ty = self.term_to_ty(body, Some(args))?;
 
-                let type_ref = self.builder.type_ref();
-                self.scopes.push(ident, Def::Type(type_ref, ty));
-                self.builder.append_type(ident, ty);
+                self.scopes.push(ident, Def::Type(ty));
+
+                self.metadata.set(node, ty);
             }
             _ => {}
         }
@@ -656,7 +552,7 @@ impl<'ast> Sema<'ast> {
         Ok(())
     }
 
-    pub fn run(mut self) -> (TIR<'ast>, Vec<SemaError<'ast>>) {
+    pub fn run(mut self) -> (TypedAST<'ast>, Vec<SemaError<'ast>>) {
         let mut errors: Vec<SemaError> = vec![];
 
         match self.ast.root {
@@ -673,6 +569,6 @@ impl<'ast> Sema<'ast> {
             None => errors.push(SemaError::NoRootNode),
         }
 
-        (self.builder.build(self.ctx), errors)
+        (TypedAST::new(self.ast, self.metadata, self.ctx), errors)
     }
 }

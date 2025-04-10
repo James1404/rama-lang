@@ -197,6 +197,10 @@ impl<'a> ASTView<'a> {
         self.data[handle.0].clone()
     }
 
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
     fn print(self, handle: Ref, indentation: usize) {
         macro_rules! out {
             ($indentation:expr, $($arg:tt)*) => {{

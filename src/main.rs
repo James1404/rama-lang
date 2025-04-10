@@ -21,7 +21,7 @@ mod types;
 mod valuescope;
 mod typed_ast;
 mod tir;
-mod tirgen;
+mod tirbuilder;
 mod backend;
 
 #[derive(ClapParser)]
@@ -86,7 +86,7 @@ where
     }
 
     let sema = Sema::new(astview);
-    let (tir, errors) = sema.run();
+    let (tast, errors) = sema.run();
 
     for error in &errors {
         println!("Error: {}", error);
@@ -95,11 +95,11 @@ where
         return Ok(());
     }
 
-    tir.pretty_print();
+    tast.print();
 
-    println!("<== Starting CodeGen ==>");
-    let backend = backend::llvm::Codegen::new(tir, metadata);
-    backend.run();
+    // println!("<== Starting CodeGen ==>");
+    // let backend = backend::llvm::Codegen::new(tir, metadata);
+    // backend.run();
 
     Ok(())
 }
