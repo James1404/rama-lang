@@ -199,9 +199,7 @@ impl<'a> Codegen<'a> {
                 Instruction::Negate { .. } => todo!(),
                 Instruction::Not { .. } => todo!(),
                 Instruction::Load { .. } => todo!(),
-                Instruction::Store { reg, value } => {
-                    mapping.get(*value)
-                }
+                Instruction::Store { reg, value } => mapping.get(*value),
                 Instruction::Ref { .. } => todo!(),
                 Instruction::Deref { .. } => todo!(),
                 Instruction::Cast {
@@ -270,10 +268,7 @@ impl<'a> Codegen<'a> {
 
                     alloca
                 }
-                Instruction::StructStore { field, value, .. } => {
-                    LLVMBuildStore(builder, mapping.get(*value), mapping.get(*field))
-                }
-                Instruction::StructLoad {
+                Instruction::GetStructField {
                     r#struct, idx, ty, ..
                 } => {
                     let name = CString::new("").unwrap();
@@ -367,8 +362,9 @@ impl<'a> Codegen<'a> {
 
         for (idx, bb) in cfg.blocks.iter().enumerate() {
             let llvm_name = CString::new(format!("bb{}", idx)).unwrap();
-            let llvm_bb =
-                unsafe { LLVMAppendBasicBlockInContext(self.context, function, llvm_name.as_ptr()) };
+            let llvm_bb = unsafe {
+                LLVMAppendBasicBlockInContext(self.context, function, llvm_name.as_ptr())
+            };
 
             mapping.push_bb(llvm_bb);
             unsafe { LLVMPositionBuilderAtEnd(self.builder, llvm_bb) };

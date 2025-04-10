@@ -309,6 +309,25 @@ impl<'ast> Sema<'ast> {
                 }
                 None => Err(SemaError::NotDefined(ident.text)),
             },
+            Node::FieldAccess(value, field) => {
+                let value = self.infer(cfg, value)?;
+                let field = self.get_ident(field)?;
+
+                match self.ctx.get(value.1) {
+                    Type::ADT(ADT { fields, .. }) => {
+                        if let Some((idx, field)) = fields.iter().find_position(|f| f.ident == field) {
+                            let ty = field.ty.unwrap();
+                            let dest = cfg.reg();
+                            cfg.append(Instruction::GetStructField { dest, r#struct: value.0, idx, ty });
+                            Ok((dest, ty))
+                        }
+                        else {
+                            panic!("Doesnt have field")
+                        }
+                    },
+                    _ => Err(SemaError::Err("Field does not exist on struct".to_owned()))
+                }
+            },
 
             Node::FnCall { func, args } => {
                 let func = self.infer(cfg, func)?;
@@ -396,7 +415,10 @@ impl<'ast> Sema<'ast> {
                 }
             }
 
-            _ => Err(SemaError::InvalidTerm(term)),
+            node => {
+                dbg!(node);
+                Err(SemaError::InvalidTerm(term))
+            }
         }
     }
 

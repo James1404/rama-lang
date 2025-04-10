@@ -119,13 +119,7 @@ pub enum Instruction<'a> {
         ty: TypeID,
         fields: Vec<(Ref, TypeID)>,
     },
-    StructStore {
-        r#struct: Ref,
-        field: Ref,
-        value: Ref,
-        ty: TypeID,
-    },
-    StructLoad {
+    GetStructField {
         dest: Ref,
         r#struct: Ref,
         idx: usize,
@@ -198,18 +192,12 @@ impl<'a> Display for Instruction<'a> {
                 }
                 write!(f, "}}")
             }
-            Instruction::StructStore {
-                r#struct,
-                field,
-                value,
-                ..
-            } => write!(f, "struct {}[{}] = {}", r#struct, field, value),
-            Instruction::StructLoad {
+            Instruction::GetStructField {
                 dest,
                 r#struct,
                 idx,
                 ..
-            } => write!(f, "{} = struct {} load {}", dest, r#struct, idx),
+            } => write!(f, "{} = getstructfield {} {}", dest, r#struct, idx),
             Instruction::FuncRef { dest, index } => write!(f, "{} = func_ref({})", dest, index.0),
             Instruction::TypeRef { dest, index } => write!(f, "{} = type_ref({})", dest, index.0),
             Instruction::Call {
