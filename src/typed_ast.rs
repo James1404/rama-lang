@@ -57,6 +57,13 @@ impl<'a> TypedAST<'a> {
         }
     }
 
+    pub fn get_ident(&self, node: Ref) -> &'a str {
+        match self.get_node(node) {
+            Node::Ident(token) => token.text,
+            _ => panic!(),
+        }
+    }
+
     pub fn get_node(&self, node: Ref) -> Node<'a> {
         self.ast.get(node)
     }
