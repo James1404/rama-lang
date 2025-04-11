@@ -57,7 +57,7 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
     }
 
     pub fn down(&mut self) {
-        self.data.push_and_get_key(Scope {
+        self.current = self.data.push_and_get_key(Scope {
             parent: Some(self.current),
             data: HashMap::new(),
         });

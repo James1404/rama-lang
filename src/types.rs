@@ -47,8 +47,8 @@ pub enum IntSize {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct FnType {
-    pub parameters: Vec<TypeID>,
+pub struct FnType<'a> {
+    pub parameters: Vec<(&'a str, TypeID)>,
     pub return_ty: TypeID,
 }
 
@@ -67,7 +67,7 @@ pub enum Type<'a> {
 
     Ptr(TypeID),
 
-    Fn(FnType),
+    Fn(FnType<'a>),
 
     Ref(TypeID),
 }
@@ -175,7 +175,7 @@ impl<'a> Display for TypeFmt<'a> {
                 f.write_str("fn(")?;
                 let mut iter = parameters.iter().peekable();
                 while let Some(param) = iter.next() {
-                    write!(f, "{}", self.ctx.display(*param))?;
+                    write!(f, "{}: {}", param.0, self.ctx.display(param.1))?;
 
                     if !iter.peek().is_none() {
                         f.write_str(", ")?;

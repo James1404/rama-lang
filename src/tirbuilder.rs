@@ -7,10 +7,11 @@ use crate::{
     ast::{self, Literal, Node},
     lexer::TokenType,
     tir::{
-        BasicBlock, Func, FuncRef, Instruction, Loc, Ref, Terminator, TypeDef, TypeRef, CFG, TIR
+        BasicBlock, CFG, CmpKind, Func, FuncRef, Instruction, Loc, Ref, TIR, Terminator, TypeDef,
+        TypeRef,
     },
     typed_ast::TypedAST,
-    types::{Type, TypeID, ADT},
+    types::{ADT, FnType, Type, TypeID},
     valuescope::ScopeArena,
 };
 
@@ -64,9 +65,13 @@ impl<'a> CFGBuilder<'a> {
         self.current.instructions.push(instruction);
     }
 
-    pub fn finish_block(&mut self, terminator: Terminator) {
+    fn get_block(&'a mut self, loc: Loc) -> &'a mut BasicBlock<'a> {
+        &mut self.blocks[loc]
+    }
+
+    pub fn finish_block(&mut self, terminator: Terminator) -> Loc {
         let block = std::mem::replace(&mut self.current, BasicBlockBuilder::new());
-        self.blocks.push(block.build(terminator));
+        self.blocks.push_and_get_key(block.build(terminator))
     }
 
     pub fn build(self) -> CFG<'a> {
@@ -78,6 +83,7 @@ impl<'a> CFGBuilder<'a> {
 
 #[derive(Debug, Clone)]
 enum Def {
+    Arg(usize),
     Local(Ref),
 }
 
@@ -102,11 +108,6 @@ impl<'ast> TIRBuilder<'ast> {
         }
     }
 
-    pub fn append_func(&mut self, name: &'ast str, ty: TypeID, cfg: CFG<'ast>) {
-        let func = self.funcs.push_and_get_key(Func { name, ty, cfg });
-        self.func_mapping.insert(name, func);
-    }
-
     pub fn append_type(&mut self, name: &'ast str, ty: TypeID) -> TypeRef {
         self.types.push_and_get_key(TypeDef { name, ty })
     }
@@ -125,46 +126,65 @@ impl<'ast> TIRBuilder<'ast> {
 
     fn eval_expr(&mut self, cfg: &mut CFGBuilder<'ast>, node: ast::Ref) -> Ref {
         match self.tast.get_node(node) {
-            Node::Binary { lhs, rhs, op } => match op.ty {
-                TokenType::Plus => {
-                    let lhs = self.eval_expr(cfg, lhs);
-                    let rhs = self.eval_expr(cfg, rhs);
+            Node::Binary { lhs: l, rhs: r, op } => {
+                let lhs = self.eval_expr(cfg, l);
+                let rhs = self.eval_expr(cfg, r);
+                let dest = cfg.reg();
 
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::Add { dest, lhs, rhs });
+                match op.ty {
+                    TokenType::Plus => cfg.append(Instruction::Add { dest, lhs, rhs }),
+                    TokenType::Minus => cfg.append(Instruction::Sub { dest, lhs, rhs }),
+                    TokenType::Asterix => cfg.append(Instruction::Mul { dest, lhs, rhs }),
+                    TokenType::Slash => cfg.append(Instruction::Div { dest, lhs, rhs }),
 
-                    dest
+                    TokenType::EqualEqual => cfg.append(Instruction::Cmp {
+                        dest,
+                        lhs,
+                        rhs,
+                        kind: CmpKind::Equal,
+                        ty: self.tast.get_type_id(l),
+                    }),
+                    TokenType::NotEqual => cfg.append(Instruction::Cmp {
+                        dest,
+                        lhs,
+                        rhs,
+                        kind: CmpKind::NotEqual,
+                        ty: self.tast.get_type_id(l),
+                    }),
+                    TokenType::Less => cfg.append(Instruction::Cmp {
+                        dest,
+                        lhs,
+                        rhs,
+                        kind: CmpKind::LessThan,
+                        ty: self.tast.get_type_id(l),
+                    }),
+                    TokenType::LessEq => cfg.append(Instruction::Cmp {
+                        dest,
+                        lhs,
+                        rhs,
+                        kind: CmpKind::LessEqual,
+                        ty: self.tast.get_type_id(l),
+                    }),
+                    TokenType::Greater => cfg.append(Instruction::Cmp {
+                        dest,
+                        lhs,
+                        rhs,
+                        kind: CmpKind::GreaterThan,
+                        ty: self.tast.get_type_id(l),
+                    }),
+                    TokenType::GreaterEq => cfg.append(Instruction::Cmp {
+                        dest,
+                        lhs,
+                        rhs,
+                        kind: CmpKind::GreaterEqual,
+                        ty: self.tast.get_type_id(l),
+                    }),
+
+                    _ => panic!(),
                 }
-                TokenType::Minus => {
-                    let lhs = self.eval_expr(cfg, lhs);
-                    let rhs = self.eval_expr(cfg, rhs);
 
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::Sub { dest, lhs, rhs });
-
-                    dest
-                }
-                TokenType::Asterix => {
-                    let lhs = self.eval_expr(cfg, lhs);
-                    let rhs = self.eval_expr(cfg, rhs);
-
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::Mul { dest, lhs, rhs });
-
-                    dest
-                }
-                TokenType::Slash => {
-                    let lhs = self.eval_expr(cfg, lhs);
-                    let rhs = self.eval_expr(cfg, rhs);
-
-                    let dest = cfg.reg();
-                    cfg.append(Instruction::Div { dest, lhs, rhs });
-
-                    dest
-                }
-
-                _ => panic!(),
-            },
+                dest
+            }
             Node::Literal(lit) => match lit {
                 Literal::String(value) => {
                     let dest = cfg.reg();
@@ -210,19 +230,16 @@ impl<'ast> TIRBuilder<'ast> {
                     dest
                 }
             },
-            Node::Ident(ident) => {
-                let Some((_, Def::Local(reg))) = self.scope.iter().find(|n| {
-                    n.0 == ident.text
-                        && match n.1 {
-                            Def::Local(_) => true,
-                            _ => false,
-                        }
-                }) else {
-                    panic!()
-                };
+            Node::Ident(ident) => match self.scope.get(ident.text) {
+                Some(Def::Local(reg)) => reg,
+                Some(Def::Arg(index)) => {
+                    let dest = cfg.reg();
+                    cfg.append(Instruction::ReadArg { dest, index });
 
-                reg
-            }
+                    dest
+                }
+                None => panic!(),
+            },
             Node::FieldAccess(value, field) => {
                 let ty = self.tast.get_type_id(field);
 
@@ -230,8 +247,8 @@ impl<'ast> TIRBuilder<'ast> {
                 let field = match self.tast.get_ty(value) {
                     Type::ADT(ADT { fields, .. }) => {
                         fields.iter().position(|f| f.ident == field).unwrap()
-                    },
-                    _ => panic!()
+                    }
+                    _ => panic!(),
                 };
 
                 let value = self.eval_expr(cfg, value);
@@ -286,12 +303,9 @@ impl<'ast> TIRBuilder<'ast> {
                 value,
             } => {
                 let ty = self.tast.get_type_id(node);
-                let dest = cfg.reg();
-                cfg.append(Instruction::MakeVar { dest, ty });
-
                 let value = self.eval_expr(cfg, value);
-                cfg.append(Instruction::WriteVar { var: dest, value });
-
+                let dest = cfg.reg();
+                cfg.append(Instruction::MakeVar { dest, value, ty });
                 self.scope.push(self.get_ident(ident), Def::Local(dest));
             }
             Node::ConstDecl {
@@ -300,12 +314,9 @@ impl<'ast> TIRBuilder<'ast> {
                 value,
             } => {
                 let ty = self.tast.get_type_id(node);
-                let dest = cfg.reg();
-                cfg.append(Instruction::MakeVar { dest, ty });
-
                 let value = self.eval_expr(cfg, value);
-                cfg.append(Instruction::WriteVar { var: dest, value });
-
+                let dest = cfg.reg();
+                cfg.append(Instruction::MakeVar { dest, value, ty });
                 self.scope.push(self.get_ident(ident), Def::Local(dest));
             }
 
@@ -322,8 +333,8 @@ impl<'ast> TIRBuilder<'ast> {
                     let field = match self.tast.get_ty(structvalue) {
                         Type::ADT(ADT { fields, .. }) => {
                             fields.iter().position(|f| f.ident == field).unwrap()
-                        },
-                        _ => panic!()
+                        }
+                        _ => panic!(),
                     };
 
                     let structvalue = self.eval_expr(cfg, structvalue);
@@ -349,7 +360,48 @@ impl<'ast> TIRBuilder<'ast> {
                 let value = self.eval_expr(cfg, value);
                 cfg.finish_block(Terminator::Return(value));
             }
-            _ => todo!(),
+            Node::If { cond, t, f } => {
+                let cond = self.eval_expr(cfg, cond);
+
+                let start = cfg.finish_block(Terminator::If {
+                    cond,
+                    t: Loc(0),
+                    f: Loc(0),
+                });
+
+                self.eval_fn_stmt(cfg, t);
+                let t = cfg.finish_block(Terminator::Goto(Loc(0)));
+
+                self.eval_fn_stmt(cfg, f);
+                let f = cfg.finish_block(Terminator::Goto(Loc(0)));
+
+                match cfg.blocks[start].terminator {
+                    Terminator::If {
+                        cond: _,
+                        t: ref mut tloc,
+                        f: ref mut floc,
+                    } => {
+                        *tloc = t;
+                        *floc = f;
+                    }
+                    _ => panic!(),
+                };
+
+                match cfg.blocks[t].terminator {
+                    Terminator::Goto(ref mut loc) => *loc = t,
+                    _ => {},
+                };
+
+                match cfg.blocks[f].terminator {
+                    Terminator::Goto(ref mut loc) => *loc = f,
+                    _ => {},
+                };
+
+            }
+
+            _ => {
+                self.eval_expr(cfg, node);
+            }
         }
     }
 
@@ -361,14 +413,41 @@ impl<'ast> TIRBuilder<'ast> {
                 ret,
                 block,
             } => {
+                let func = self.funcs.next_key();
+                let ident = self.get_ident(ident);
+                self.func_mapping.insert(ident, func);
+
+                self.scope.down();
+
+                let ty = self.tast.get_type_id(node);
+
+                let Type::Fn(FnType {
+                    parameters,
+                    return_ty: _,
+                }) = self.tast.get_ty(node)
+                else {
+                    panic!();
+                };
+
+                for (idx, param) in parameters.iter().enumerate() {
+                    self.scope.push(param.0, Def::Arg(idx));
+                }
+
                 let mut cfg = CFGBuilder::new();
                 self.eval_fn_stmt(&mut cfg, block);
+                self.scope.up();
 
-                let ident = self.get_ident(ident);
-                let ty = self.tast.get_type_id(node);
-                self.append_func(ident, ty, cfg.build());
+                self.funcs.push(Func {
+                    name: ident,
+                    ty,
+                    cfg: cfg.build(),
+                });
             }
-            Node::Type { ident, args, body } => {
+            Node::Type {
+                ident,
+                args: _,
+                body,
+            } => {
                 let ident = self.get_ident(ident);
                 let ty = self.tast.get_type_id(body);
                 self.append_type(ident, ty);

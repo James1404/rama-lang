@@ -92,7 +92,6 @@ pub enum Node<'a> {
 
     ReturnNone,
     Return(Ref),
-    ImplicitReturn(Ref),
 
     Dot {
         lhs: Ref,
@@ -301,7 +300,6 @@ impl<'a> ASTView<'a> {
             }
             Node::ReturnNone => {},
             Node::Return(value) => self.print(value, indentation + 1),
-            Node::ImplicitReturn(value) => self.print(value, indentation + 1),
             Node::Dot { lhs, ident } => {
                 self.print(lhs, indentation + 1);
                 self.print(ident, indentation + 1);

@@ -178,7 +178,9 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             TokenType::String => {
                 Ok(self.advance_alloc(Node::Literal(ast::Literal::String(token.text))))
             }
-            TokenType::Float => Ok(self.advance_alloc(Node::Literal(ast::Literal::Float(token.text)))),
+            TokenType::Float => {
+                Ok(self.advance_alloc(Node::Literal(ast::Literal::Float(token.text))))
+            }
             TokenType::Int => Ok(self.advance_alloc(Node::Literal(ast::Literal::Int(token.text)))),
             TokenType::Ident => self.parse_ident(),
             TokenType::True => Ok(self.advance_alloc(Node::Literal(ast::Literal::Bool(true)))),
@@ -675,8 +677,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
                 if self.cursor.advance_if(TokenType::Semicolon) {
                     Ok(self.alloc(Node::ReturnNone))
-                }
-                else {
+                } else {
                     let expr = self.parse_expr()?;
                     if self.cursor.advance_if(TokenType::Semicolon) {
                         Ok(self.alloc(Node::Return(expr)))
@@ -697,6 +698,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             TokenType::Type => self.parse_type_stmt(),
             TokenType::Interface => self.parse_interface(),
             TokenType::Fn => self.parse_fn_stmt(),
+            TokenType::If => self.parse_if(),
             _ => {
                 let expr = self.parse_expr()?;
 
@@ -711,7 +713,10 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 if self.cursor.advance_if(TokenType::Semicolon) {
                     Ok(expr)
                 } else {
-                    Ok(self.alloc(Node::ImplicitReturn(expr)))
+                    Err(ParserError {
+                        msg: "Expect semicolon after expression".to_owned(),
+                        token,
+                    })
                 }
             }
         }

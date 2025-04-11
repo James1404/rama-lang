@@ -2,7 +2,7 @@ use std::ffi::CString;
 
 use crate::{
     metadata::Metadata,
-    tir::{CFG, FuncRef, Instruction, Loc, Ref, TIR, Terminator, TypeDef},
+    tir::{CFG, CmpKind, FuncRef, Instruction, Loc, Ref, TIR, Terminator, TypeDef},
     types::{ADTKind, FloatKind, FnType, IntSize, Type, TypeID},
 };
 
@@ -18,6 +18,7 @@ use typed_index_collections::{TiVec, ti_vec};
 
 struct CFGMapping {
     data: TiVec<Ref, *mut LLVMValue>,
+    args: Vec<*mut LLVMValue>,
     basic_blocks: TiVec<Loc, *mut LLVMBasicBlock>,
 }
 
@@ -25,6 +26,7 @@ impl CFGMapping {
     fn new() -> Self {
         Self {
             data: ti_vec![],
+            args: vec![],
             basic_blocks: ti_vec![],
         }
     }
@@ -140,7 +142,7 @@ impl<'a> Codegen<'a> {
                 }) => {
                     let mut parameters = parameters
                         .iter()
-                        .map(|ty| self.type_to_llvm(*ty))
+                        .map(|param| self.type_to_llvm(param.1))
                         .collect_vec()
                         .into_boxed_slice();
 
@@ -190,17 +192,57 @@ impl<'a> Codegen<'a> {
 
                     LLVMBuildFDiv(builder, lhs, rhs, CString::new("divtmp").unwrap().as_ptr())
                 }
-                Instruction::CmpGt { .. } => todo!(),
-                Instruction::CmpLt { .. } => todo!(),
-                Instruction::CmpGe { .. } => todo!(),
-                Instruction::CmpLe { .. } => todo!(),
-                Instruction::CmpEq { .. } => todo!(),
-                Instruction::CmpNq { .. } => todo!(),
+
+                Instruction::Cmp {
+                    lhs, rhs, ty, kind, ..
+                } => {
+                    let l = mapping.get(*lhs);
+                    let r = mapping.get(*rhs);
+
+                    match self.tir.ctx.get(*ty) {
+                        Type::Int { signed: true, .. } => LLVMBuildICmp(
+                            builder,
+                            match kind {
+                                CmpKind::Equal => LLVMIntPredicate::LLVMIntEQ,
+                                CmpKind::NotEqual => LLVMIntPredicate::LLVMIntNE,
+                                CmpKind::LessThan => LLVMIntPredicate::LLVMIntSLT,
+                                CmpKind::LessEqual => LLVMIntPredicate::LLVMIntSLE,
+                                CmpKind::GreaterThan => LLVMIntPredicate::LLVMIntSGT,
+                                CmpKind::GreaterEqual => LLVMIntPredicate::LLVMIntSGE,
+                            },
+                            l,
+                            r,
+                            CString::new("intcmp").unwrap().as_ptr(),
+                        ),
+                        Type::Int { signed: false, .. } => LLVMBuildICmp(
+                            builder,
+                            match kind {
+                                CmpKind::Equal => LLVMIntPredicate::LLVMIntEQ,
+                                CmpKind::NotEqual => LLVMIntPredicate::LLVMIntNE,
+                                CmpKind::LessThan => LLVMIntPredicate::LLVMIntULT,
+                                CmpKind::LessEqual => LLVMIntPredicate::LLVMIntULE,
+                                CmpKind::GreaterThan => LLVMIntPredicate::LLVMIntUGT,
+                                CmpKind::GreaterEqual => LLVMIntPredicate::LLVMIntUGE,
+                            },
+                            l,
+                            r,
+                            CString::new("intcmp").unwrap().as_ptr(),
+                        ),
+
+                        _ => panic!(),
+                    }
+                }
                 Instruction::Negate { .. } => todo!(),
                 Instruction::Not { .. } => todo!(),
-                Instruction::MakeVar { dest, ty } => {
-                    let name = CString::new("").unwrap();
-                    LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr())
+                Instruction::MakeVar { dest, value, ty } => {
+                    // let name = CString::new("").unwrap();
+                    // let alloca = LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr());
+                    // let value = mapping.get(*value);
+                    // LLVMBuildStore(builder, value, alloca);
+
+                    // alloca
+
+                    mapping.get(*value)
                 }
                 Instruction::ReadVar { dest, var } => mapping.get(*var),
                 Instruction::WriteVar { var, value } => {
@@ -298,6 +340,8 @@ impl<'a> Codegen<'a> {
                     )
                 }
 
+                Instruction::ReadArg { dest: _, index } => mapping.args[*index],
+
                 Instruction::Call { func, args, .. } => {
                     let ty = self.type_to_llvm(self.tir.get_func(*func).ty);
                     let func = self.functions_mapping[*func];
@@ -375,14 +419,11 @@ impl<'a> Codegen<'a> {
                 Terminator::Return(value) => {
                     LLVMBuildRet(builder, mapping.get(*value));
                 }
-                Terminator::ImplicitReturn(_) => todo!(),
             }
         }
     }
 
-    fn eval_cfg(&mut self, function: *mut LLVMValue, cfg: &CFG<'a>) {
-        let mut mapping = CFGMapping::new();
-
+    fn eval_cfg(&mut self, mapping: &mut CFGMapping, function: *mut LLVMValue, cfg: &CFG<'a>) {
         for (idx, bb) in cfg.blocks.iter().enumerate() {
             let llvm_name = CString::new(format!("bb{}", idx)).unwrap();
             let llvm_bb = unsafe {
@@ -394,9 +435,9 @@ impl<'a> Codegen<'a> {
 
             bb.instructions
                 .iter()
-                .for_each(|inst| self.eval_instruction(self.builder, &mut mapping, inst));
+                .for_each(|inst| self.eval_instruction(self.builder, mapping, inst));
 
-            self.eval_terminator(self.builder, &mut mapping, &bb.terminator);
+            self.eval_terminator(self.builder, mapping, &bb.terminator);
         }
     }
 
@@ -406,6 +447,8 @@ impl<'a> Codegen<'a> {
         }
 
         for func in self.tir.clone().func_iter() {
+            let mut mapping = CFGMapping::new();
+
             let ty = match self.tir.ctx.get(func.ty) {
                 Type::Fn(ty) => ty,
                 _ => panic!(),
@@ -413,13 +456,31 @@ impl<'a> Codegen<'a> {
 
             let ident = CString::new(func.name).unwrap();
             let function = unsafe {
+                let mut parameters = ty
+                    .parameters
+                    .iter()
+                    .map(|param| self.type_to_llvm(param.1))
+                    .collect_vec();
+
                 let return_ty = self.type_to_llvm(ty.return_ty);
-                let function_type = LLVMFunctionType(return_ty, std::ptr::null_mut(), 0, 0);
+                let function_type = LLVMFunctionType(
+                    return_ty,
+                    parameters.as_mut_ptr(),
+                    parameters.len() as u32,
+                    false as i32,
+                );
+
                 LLVMAddFunction(self.module, ident.as_ptr(), function_type)
             };
 
+            for idx in 0..ty.parameters.len() {
+                mapping
+                    .args
+                    .push(unsafe { LLVMGetParam(function, idx as u32) });
+            }
+
             self.functions_mapping.push(function);
-            self.eval_cfg(function, &func.cfg);
+            self.eval_cfg(&mut mapping, function, &func.cfg);
         }
 
         unsafe {

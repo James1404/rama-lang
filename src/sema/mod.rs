@@ -157,7 +157,28 @@ impl<'ast> Sema<'ast> {
                 TokenType::Minus => self.sub(lhs, rhs),
                 TokenType::Asterix => self.mul(lhs, rhs),
                 TokenType::Slash => self.div(lhs, rhs),
-                _ => Err(SemaError::InvalidType),
+
+                TokenType::EqualEqual
+                | TokenType::NotEqual
+                | TokenType::Less
+                | TokenType::LessEq
+                | TokenType::Greater
+                | TokenType::GreaterEq => {
+                    let t1 = self.infer(lhs)?;
+                    let t2 = self.infer(rhs)?;
+
+                    if self.subtype(t1, t2) {
+                        Ok(self.ctx.alloc(Type::Bool))
+                    } else {
+                        Err(SemaError::Err(format!(
+                            "Cannot compare types {} and {}",
+                            self.ctx.display(t1),
+                            self.ctx.display(t2)
+                        )))
+                    }
+                }
+
+                _ => Err(SemaError::InvalidTerm(term)),
             },
             Node::Unary { value, op } => match op.ty {
                 TokenType::Plus | TokenType::MinusEq => self.infer(value),
@@ -199,7 +220,7 @@ impl<'ast> Sema<'ast> {
 
             Node::FieldAccess(value, field) => {
                 let ty = self.infer(value)?;
-                let field = self.get_ident(field)?;
+                let ident = self.get_ident(field)?;
 
                 match self.ctx.get(ty) {
                     Type::ADT(ADT {
@@ -207,8 +228,11 @@ impl<'ast> Sema<'ast> {
                         fields,
                         generic_args: _,
                     }) => {
-                        if let Some(field) = fields.iter().find(|f| f.ident == field) {
-                            Ok(field.ty.unwrap())
+                        if let Some(Field { ident: _, ty }) =
+                            fields.iter().find(|f| f.ident == ident)
+                        {
+                            self.metadata.set(field, ty.unwrap());
+                            Ok(ty.unwrap())
                         } else {
                             Err(SemaError::Err("Doesnt have field".to_owned()))
                         }
@@ -232,10 +256,10 @@ impl<'ast> Sema<'ast> {
                         .collect_vec();
 
                     for (param, arg) in izip!(parameters, args) {
-                        if !self.subtype(arg, param) {
+                        if !self.subtype(arg, param.1) {
                             return Err(SemaError::Err(format!(
                                 "Argument expected {} but got {}",
-                                self.ctx.display(param),
+                                self.ctx.display(param.1),
                                 self.ctx.display(arg)
                             )));
                         }
@@ -467,6 +491,15 @@ impl<'ast> Sema<'ast> {
                     None => return Err(SemaError::FunctionDoesNotHaveReturnType),
                 }
             }
+
+            Node::If { cond, t, f } => {
+                let b = self.ctx.alloc(Type::Bool);
+                self.check(cond, b)?;
+
+                self.eval(t)?;
+                self.eval(f)?;
+            }
+
             _ => {
                 self.infer(node)?;
             }
@@ -516,9 +549,10 @@ impl<'ast> Sema<'ast> {
                 let returnty = self.term_to_ty(ret, None)?;
 
                 let parameters = {
-                    let mut vec = Vec::<TypeID>::new();
-                    for param in params {
-                        vec.push(self.term_to_ty(param.ty, None)?);
+                    let mut vec = Vec::<(&'ast str, TypeID)>::new();
+                    for param in &params {
+                        let ident = self.get_ident(param.ident)?;
+                        vec.push((ident, self.term_to_ty(param.ty, None)?));
                     }
 
                     vec
@@ -529,13 +563,22 @@ impl<'ast> Sema<'ast> {
                     return_ty: returnty,
                 }));
 
+                self.scopes.push(ident, Def::Fn(ty));
+
+                self.scopes.down();
+
+                for param in params {
+                    let ident = self.get_ident(param.ident)?;
+                    let ty = self.term_to_ty(param.ty, None)?;
+                    self.scopes.push(ident, Def::Const(ty));
+                }
+
                 self.callstack.push(Frame {
                     return_type: Some(returnty),
                 });
 
-                self.scopes.push(ident, Def::Fn(ty));
-
                 self.eval(block)?;
+                self.scopes.up();
 
                 self.metadata.set(node, ty);
             }

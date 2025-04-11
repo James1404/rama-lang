@@ -25,6 +25,16 @@ impl Display for Ref {
     }
 }
 
+#[derive(Debug, Clone, Copy, Display)]
+pub enum CmpKind {
+    Equal,
+    NotEqual,
+    LessThan,
+    LessEqual,
+    GreaterThan,
+    GreaterEqual,
+}
+
 #[derive(Debug, Clone)]
 pub enum Instruction<'a> {
     Add {
@@ -48,35 +58,12 @@ pub enum Instruction<'a> {
         rhs: Ref,
     },
 
-    CmpGt {
+    Cmp {
         dest: Ref,
         lhs: Ref,
         rhs: Ref,
-    },
-    CmpLt {
-        dest: Ref,
-        lhs: Ref,
-        rhs: Ref,
-    },
-    CmpGe {
-        dest: Ref,
-        lhs: Ref,
-        rhs: Ref,
-    },
-    CmpLe {
-        dest: Ref,
-        lhs: Ref,
-        rhs: Ref,
-    },
-    CmpEq {
-        dest: Ref,
-        lhs: Ref,
-        rhs: Ref,
-    },
-    CmpNq {
-        dest: Ref,
-        lhs: Ref,
-        rhs: Ref,
+        kind: CmpKind,
+        ty: TypeID,
     },
 
     Negate {
@@ -90,6 +77,7 @@ pub enum Instruction<'a> {
 
     MakeVar {
         dest: Ref,
+        value: Ref,
         ty: TypeID,
     },
     ReadVar {
@@ -133,6 +121,11 @@ pub enum Instruction<'a> {
         field: usize,
         value: Ref,
         ty: TypeID,
+    },
+
+    ReadArg {
+        dest: Ref,
+        index: usize,
     },
 
     Call {
@@ -180,18 +173,19 @@ impl<'a> Display for InstructionFmt<'a> {
             Instruction::Sub { dest, lhs, rhs } => write!(f, "{} = {} - {}", dest, lhs, rhs),
             Instruction::Mul { dest, lhs, rhs } => write!(f, "{} = {} * {}", dest, lhs, rhs),
             Instruction::Div { dest, lhs, rhs } => write!(f, "{} = {} / {}", dest, lhs, rhs),
-            Instruction::CmpGt { dest, lhs, rhs } => write!(f, "{} = {} > {}", dest, lhs, rhs),
-            Instruction::CmpLt { dest, lhs, rhs } => write!(f, "{} = {} < {}", dest, lhs, rhs),
-            Instruction::CmpGe { dest, lhs, rhs } => write!(f, "{} = {} >= {}", dest, lhs, rhs),
-            Instruction::CmpLe { dest, lhs, rhs } => write!(f, "{} = {} <= {}", dest, lhs, rhs),
-            Instruction::CmpEq { dest, lhs, rhs } => write!(f, "{} = {} == {}", dest, lhs, rhs),
-            Instruction::CmpNq { dest, lhs, rhs } => write!(f, "{} = {} != {}", dest, lhs, rhs),
+            Instruction::Cmp {
+                dest,
+                lhs,
+                rhs,
+                kind,
+                ..
+            } => write!(f, "{} = cmp {} {} {}", dest, kind, lhs, rhs),
             Instruction::Negate { dest, value } => write!(f, "{} = -{}", dest, value),
             Instruction::Not { dest, value } => write!(f, "{} = !{}", dest, value),
 
-            Instruction::MakeVar { dest, ty } => write!(f, "{} = make_var", dest),
+            Instruction::MakeVar { dest, value, ty: _ } => write!(f, "var {} = {}", dest, value),
             Instruction::ReadVar { dest, var } => write!(f, "{} = read_var {}", dest, var),
-            Instruction::WriteVar { var, value } => write!(f, "var {} =  {}", var, value),
+            Instruction::WriteVar { var, value } => write!(f, "store {} {}", var, value),
 
             Instruction::Ref { dest, value } => write!(f, "{} = ref {}", dest, value),
             Instruction::Deref { dest, value } => write!(f, "{} = deref {}", dest, value),
@@ -214,6 +208,8 @@ impl<'a> Display for InstructionFmt<'a> {
                 value,
                 ty: _,
             } => write!(f, "{}.{} = {}", r#struct, field, value),
+
+            Instruction::ReadArg { dest, index } => write!(f, "{} = arg {}", dest, index),
 
             Instruction::Call { dest, func, args } => {
                 write!(f, "{} = call {} (", dest, self.tir.get_func(*func).name)?;
@@ -242,7 +238,6 @@ pub enum Terminator {
     If { cond: Ref, t: Loc, f: Loc },
     ReturnNone,
     Return(Ref),
-    ImplicitReturn(Ref),
 }
 
 impl Display for Terminator {
@@ -254,7 +249,6 @@ impl Display for Terminator {
             }
             Terminator::ReturnNone => write!(fmt, "return"),
             Terminator::Return(value) => write!(fmt, "return {}", value),
-            Terminator::ImplicitReturn(value) => write!(fmt, "implicit_return {}", value),
         }
     }
 }
@@ -318,7 +312,7 @@ impl<'a> TIR<'a> {
                 }) => {
                     let mut iter = parameters.iter().peekable();
                     while let Some(param) = iter.next() {
-                        print!("{}", self.ctx.display(*param));
+                        print!("{}: {}", param.0, self.ctx.display(param.1));
                         if !iter.peek().is_some() {
                             print!(", ");
                         }

@@ -10,20 +10,20 @@ use metadata::Metadata;
 use parser::Parser;
 
 use clap::{Command, Parser as ClapParser, Subcommand};
-use sema::Sema;
+use sema::{Sema, SemaError};
 use tirbuilder::TIRBuilder;
 
-mod metadata;
-mod lexer;
 mod ast;
+mod backend;
+mod lexer;
+mod metadata;
 mod parser;
 mod sema;
-mod types;
-mod valuescope;
-mod typed_ast;
 mod tir;
 mod tirbuilder;
-mod backend;
+mod typed_ast;
+mod types;
+mod valuescope;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "A small WIP Compiler")]
@@ -90,7 +90,11 @@ where
     let (tast, errors) = sema.run();
 
     for error in &errors {
-        println!("Error: {}", error);
+        match error {
+            SemaError::InvalidTerm(term) => println!("Error: [InvalidTerm] {:#?}", astview.get(*term)),
+            SemaError::Err(msg) => println!("Error: {}", msg),
+            _ => println!("Error: {}", error),
+        }
     }
     if !errors.is_empty() {
         return Ok(());
