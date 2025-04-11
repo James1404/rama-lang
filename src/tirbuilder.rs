@@ -6,50 +6,11 @@ use typed_index_collections::{TiVec, ti_vec};
 use crate::{
     ast::{self, Literal, Node},
     lexer::TokenType,
-    tir::{
-        BasicBlock, CFG, CmpKind, Func, FuncRef, Instruction, Loc, Ref, TIR, Terminator, TypeDef,
-        TypeRef,
-    },
+    tir::{BasicBlock, CFG, CmpKind, Func, FuncRef, Instruction, Loc, Ref, TIR, TypeDef, TypeRef},
     typed_ast::TypedAST,
     types::{ADT, FnType, Type, TypeID},
     valuescope::ScopeArena,
 };
-
-#[derive(Debug, Clone)]
-pub struct BasicBlockBuilder<'a> {
-    instructions: Vec<Instruction<'a>>,
-}
-
-struct BlockAnd<'a, T>(BasicBlockBuilder<'a>, T);
-
-macro_rules! unpack {
-    ($x:ident = $c:expr) => {{
-        let BlockAnd(b, v) = $c;
-
-        $x = b;
-
-        v
-    }};
-}
-
-impl<'a> BasicBlockBuilder<'a> {
-    pub fn new() -> Self {
-        Self {
-            instructions: vec![],
-        }
-    }
-
-    pub fn append(&mut self, instruction: Instruction<'a>) {
-        self.instructions.push(instruction);
-    }
-
-    pub fn build(self, terminator: Terminator) -> BasicBlock<'a> {
-        BasicBlock {
-            instructions: self.instructions,
-            terminator,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 enum Def {
@@ -57,20 +18,18 @@ enum Def {
     Local(Ref),
 }
 
-pub struct CFGBuilder<'a> {
-    pub blocks: TiVec<Loc, BasicBlock<'a>>,
-    current: BasicBlockBuilder<'a>,
+struct CFGBuilder<'a: 'b, 'b> {
+    pub instructions: TiVec<Loc, Instruction<'a>>,
     register_count: usize,
     scope: ScopeArena<'a, Def>,
-    tast: &'a TypedAST<'a>,
-    funcs: &'a FunctionMapping<'a>,
+    tast: &'b TypedAST<'a>,
+    funcs: &'b FunctionMapping<'a>,
 }
 
-impl<'a> CFGBuilder<'a> {
-    pub fn new(tast: &'a TypedAST<'a>, funcs: &'a FunctionMapping<'a>) -> Self {
+impl<'a, 'b> CFGBuilder<'a, 'b> {
+    fn new(tast: &'b TypedAST<'a>, funcs: &'b FunctionMapping<'a>) -> Self {
         Self {
-            blocks: ti_vec![],
-            current: BasicBlockBuilder::new(),
+            instructions: ti_vec![],
             register_count: 0,
             scope: ScopeArena::new(),
             tast,
@@ -84,24 +43,15 @@ impl<'a> CFGBuilder<'a> {
         Ref(index)
     }
 
-    pub fn append(&mut self, instruction: Instruction<'a>) {
-        self.current.instructions.push(instruction);
+    fn append(&mut self, instruction: Instruction<'a>) -> Loc {
+        self.instructions.push_and_get_key(instruction)
     }
 
-    fn get_block(&'a mut self, loc: Loc) -> &'a mut BasicBlock<'a> {
-        &mut self.blocks[loc]
-    }
-
-    pub fn finish_block(&mut self, terminator: Terminator) -> Loc {
-        let block = std::mem::replace(&mut self.current, BasicBlockBuilder::new());
-        self.blocks.push_and_get_key(block.build(terminator))
-    }
-
-    fn eval_expr(&mut self, mut block: BasicBlockBuilder<'a>, node: ast::Ref) -> BlockAnd<'a, Ref> {
-        let dest = match self.tast.get_node(node) {
+    fn eval_expr(&mut self, node: ast::Ref) -> Ref {
+        match self.tast.get_node(node) {
             Node::Binary { lhs: l, rhs: r, op } => {
-                let lhs = unpack!(block = self.eval_expr(block, l));
-                let rhs = unpack!(block = self.eval_expr(block, r));
+                let lhs = self.eval_expr(l);
+                let rhs = self.eval_expr(r);
                 let dest = self.reg();
 
                 match op.ty {
@@ -154,7 +104,7 @@ impl<'a> CFGBuilder<'a> {
                     }),
 
                     _ => panic!(),
-                }
+                };
 
                 dest
             }
@@ -191,7 +141,7 @@ impl<'a> CFGBuilder<'a> {
                     self.append(Instruction::MakeStruct { dest, ty });
 
                     for (idx, field) in fields.iter().enumerate() {
-                        let value = unpack!(block = self.eval_expr(block, field.value));
+                        let value = self.eval_expr(field.value);
                         self.append(Instruction::WriteField {
                             r#struct: dest,
                             field: idx,
@@ -224,7 +174,7 @@ impl<'a> CFGBuilder<'a> {
                     _ => panic!(),
                 };
 
-                let value = unpack!(block = self.eval_expr(block, value));
+                let value = self.eval_expr(value);
 
                 let dest = self.reg();
                 self.append(Instruction::ReadField {
@@ -240,10 +190,7 @@ impl<'a> CFGBuilder<'a> {
             Node::FnCall { func, args } => {
                 let name = self.tast.get_ident(func);
                 let func = self.funcs.get(name);
-                let args = args
-                    .iter()
-                    .map(|arg| unpack!(block = self.eval_expr(block, *arg)))
-                    .collect_vec();
+                let args = args.iter().map(|arg| self.eval_expr(*arg)).collect_vec();
 
                 let dest = self.reg();
                 self.append(Instruction::Call { dest, func, args });
@@ -253,7 +200,7 @@ impl<'a> CFGBuilder<'a> {
 
             Node::Cast { value, ty } => {
                 let from = self.tast.get_type_id(value);
-                let value = unpack!(block = self.eval_expr(block, value));
+                let value = self.eval_expr(value);
                 let to = self.tast.get_type_id(ty);
                 let dest = self.reg();
                 self.append(Instruction::Cast {
@@ -266,16 +213,10 @@ impl<'a> CFGBuilder<'a> {
             }
 
             node => panic!("{:?}", node),
-        };
-
-        BlockAnd(block, dest)
+        }
     }
 
-    fn eval_fn_stmt(
-        &mut self,
-        mut block: BasicBlockBuilder<'a>,
-        node: ast::Ref,
-    ) -> BasicBlockBuilder<'a> {
+    fn eval_fn_stmt(&mut self, node: ast::Ref) {
         match self.tast.get_node(node) {
             Node::VarDecl {
                 ident,
@@ -283,7 +224,7 @@ impl<'a> CFGBuilder<'a> {
                 value,
             } => {
                 let ty = self.tast.get_type_id(node);
-                let value = unpack!(block = self.eval_expr(block, value));
+                let value = self.eval_expr(value);
                 let dest = self.reg();
                 self.append(Instruction::MakeVar { dest, value, ty });
                 self.scope
@@ -295,7 +236,7 @@ impl<'a> CFGBuilder<'a> {
                 value,
             } => {
                 let ty = self.tast.get_type_id(node);
-                let value = self.eval_expr(block, value);
+                let value = self.eval_expr(value);
                 let dest = self.reg();
                 self.append(Instruction::MakeVar { dest, value, ty });
                 self.scope
@@ -304,7 +245,7 @@ impl<'a> CFGBuilder<'a> {
 
             Node::Scope(lst) => {
                 for node in lst {
-                    unpack!(block = self.eval_fn_stmt(block, node));
+                    self.eval_fn_stmt(node);
                 }
             }
             Node::Assignment { ident, value } => match self.tast.get_node(ident) {
@@ -319,8 +260,8 @@ impl<'a> CFGBuilder<'a> {
                         _ => panic!(),
                     };
 
-                    let structvalue = unpack!(block = self.eval_expr(structvalue));
-                    let value = unpack!(block = self.eval_expr(value));
+                    let structvalue = self.eval_expr(structvalue);
+                    let value = self.eval_expr(value);
 
                     self.append(Instruction::WriteField {
                         r#struct: structvalue,
@@ -330,68 +271,95 @@ impl<'a> CFGBuilder<'a> {
                     });
                 }
                 _ => {
-                    unpack!(block = self.eval_expr(value))
+                    self.eval_expr(value);
                 }
             },
 
             Node::ReturnNone => {
-                self.finish_block(Terminator::ReturnNone);
+                self.append(Instruction::ReturnNone);
             }
 
             Node::Return(value) => {
-                let value = unpack!(block = self.eval_expr(block, value));
-                self.finish_block(Terminator::Return(value));
+                let value = self.eval_expr(value);
+                self.append(Instruction::Return(value));
             }
             Node::If { cond, t, f } => {
-                let cond = unpack!(block = self.eval_expr(block, cond));
+                let cond = self.eval_expr(cond);
 
-                let start = self.finish_block(Terminator::If {
+                let start = self.append(Instruction::If {
                     cond,
-                    t: Loc(0),
-                    f: Loc(0),
+                    t: 0.into(),
+                    f: 0.into(),
                 });
 
-                self.eval_fn_stmt(cfg, t);
-                let t = self.finish_block(Terminator::Goto(Loc(0)));
+                let tstart = self.get_next_loc();
+                self.eval_fn_stmt(t);
+                let t = self.append(Instruction::Nop);
 
-                self.eval_fn_stmt(cfg, f);
-                let f = self.finish_block(Terminator::Goto(Loc(0)));
+                let fstart = self.get_next_loc();
+                self.eval_fn_stmt(f);
+                let f = self.append(Instruction::Nop);
 
-                match self.blocks[start].terminator {
-                    Terminator::If {
-                        cond: _,
-                        t: ref mut tloc,
-                        f: ref mut floc,
-                    } => {
-                        *tloc = t;
-                        *floc = f;
-                    }
-                    _ => panic!(),
+                self.instructions[start] = Instruction::If {
+                    cond,
+                    t: tstart,
+                    f: fstart,
                 };
 
-                match self.blocks[t].terminator {
-                    Terminator::Goto(ref mut loc) => *loc = t,
-                    _ => {}
-                };
+                let end = self.get_next_loc();
 
-                match self.blocks[f].terminator {
-                    Terminator::Goto(ref mut loc) => *loc = f,
-                    _ => {}
-                };
+                self.instructions[t] = Instruction::Goto(end);
+                self.instructions[f] = Instruction::Goto(end);
             }
 
             _ => {
-                unpack!(block = self.eval_expr(block, node));
+                self.eval_expr(node);
+            }
+        }
+    }
+
+    fn get_next_loc(&self) -> Loc {
+        self.instructions.next_key()
+    }
+
+    fn build(self) -> CFG<'a> {
+        let mut leaders = Vec::<Loc>::new();
+        leaders.push(0.into());
+
+        for (idx, inst) in self.instructions.iter().enumerate() {
+            match *inst {
+                Instruction::If { cond: _, t, f } => {
+                    leaders.push(t);
+                    leaders.push(f);
+                }
+                Instruction::Goto(loc) => {
+                    leaders.push(loc);
+                }
+                Instruction::ReturnNone | Instruction::Return(_) => {}
+                _ => continue,
+            }
+
+            leaders.push(Loc(idx));
+        }
+        leaders.sort();
+
+        let mut blocks = TiVec::<Loc, BasicBlock>::new();
+
+        let mut iter = leaders.iter().peekable();
+        while let Some(leader) = iter.next() {
+            match iter.peek() {
+                Some(_) => blocks.push(BasicBlock {
+                    instructions: Vec::from_iter(
+                        self.instructions[*leader..**iter.peek().unwrap()]
+                            .iter()
+                            .cloned(),
+                    ),
+                }),
+                None => {}
             }
         }
 
-        block
-    }
-
-    pub fn build(self) -> CFG<'a> {
-        CFG {
-            blocks: self.blocks,
-        }
+        CFG { blocks }
     }
 }
 
@@ -434,11 +402,7 @@ impl<'ast> TIRBuilder<'ast> {
         }
     }
 
-    fn reset_reg(&mut self) {
-        self.register_count = 0;
-    }
-
-    pub fn append_type(&mut self, name: &'ast str, ty: TypeID) -> TypeRef {
+    fn append_type(&mut self, name: &'ast str, ty: TypeID) -> TypeRef {
         self.types.push_and_get_key(TypeDef { name, ty })
     }
 
@@ -446,8 +410,8 @@ impl<'ast> TIRBuilder<'ast> {
         match self.tast.get_node(node) {
             Node::FnDecl {
                 ident,
-                params,
-                ret,
+                params: _,
+                ret: _,
                 block,
             } => {
                 let func = self.funcs.next_key();
@@ -464,19 +428,24 @@ impl<'ast> TIRBuilder<'ast> {
                     panic!();
                 };
 
-                let mut cfg = CFGBuilder::new(&self.tast, &self.func_mapping);
-                for (idx, param) in parameters.iter().enumerate() {
-                    cfg.scope.push(param.0, Def::Arg(idx));
-                }
+                let cfg = {
+                    let mut cfg = CFGBuilder::new(&self.tast, &self.func_mapping);
+                    for (idx, param) in parameters.iter().enumerate() {
+                        cfg.scope.push(param.0, Def::Arg(idx));
+                    }
 
-                self.reset_reg();
-                cfg.eval_fn_stmt(block);
+                    cfg.eval_fn_stmt(block);
 
-                self.funcs.push(Func {
+                    cfg.build()
+                };
+
+                let func = Func {
                     name: ident,
                     ty,
-                    cfg: cfg.build(),
-                });
+                    cfg,
+                };
+
+                self.funcs.push(func);
             }
             Node::Type {
                 ident,

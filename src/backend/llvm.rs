@@ -2,7 +2,7 @@ use std::ffi::CString;
 
 use crate::{
     metadata::Metadata,
-    tir::{CFG, CmpKind, FuncRef, Instruction, Loc, Ref, TIR, Terminator, TypeDef},
+    tir::{CFG, CmpKind, FuncRef, Instruction, Loc, Ref, TIR, TypeDef},
     types::{ADTKind, FloatKind, FnType, IntSize, Type, TypeID},
 };
 
@@ -168,6 +168,8 @@ impl<'a> Codegen<'a> {
     ) {
         unsafe {
             let value = match inst {
+                Instruction::Nop => panic!(),
+
                 Instruction::Add { lhs, rhs, .. } => {
                     let lhs = mapping.get(*lhs);
                     let rhs = mapping.get(*rhs);
@@ -234,7 +236,7 @@ impl<'a> Codegen<'a> {
                 }
                 Instruction::Negate { .. } => todo!(),
                 Instruction::Not { .. } => todo!(),
-                Instruction::MakeVar { dest, value, ty } => {
+                Instruction::MakeVar { dest: _, value, ty: _ } => {
                     // let name = CString::new("").unwrap();
                     // let alloca = LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr());
                     // let value = mapping.get(*value);
@@ -244,7 +246,7 @@ impl<'a> Codegen<'a> {
 
                     mapping.get(*value)
                 }
-                Instruction::ReadVar { dest, var } => mapping.get(*var),
+                Instruction::ReadVar { dest: _, var } => mapping.get(*var),
                 Instruction::WriteVar { var, value } => {
                     let var = mapping.get(*var);
                     let value = mapping.get(*value);
@@ -388,39 +390,20 @@ impl<'a> Codegen<'a> {
 
                     global
                 }
+
+                Instruction::Goto(loc) => LLVMBuildBr(builder, mapping.get_bb(*loc)),
+                Instruction::If { cond, t, f } => LLVMBuildCondBr(
+                    builder,
+                    mapping.get(*cond),
+                    mapping.get_bb(*t),
+                    mapping.get_bb(*f),
+                ),
+                Instruction::ReturnNone => LLVMBuildRetVoid(builder),
+                Instruction::Return(value) => LLVMBuildRet(builder, mapping.get(*value)),
             };
 
             mapping.push(value);
         };
-    }
-
-    fn eval_terminator(
-        &mut self,
-        builder: *mut LLVMBuilder,
-        mapping: &mut CFGMapping,
-        terminator: &Terminator,
-    ) {
-        unsafe {
-            match terminator {
-                Terminator::Goto(loc) => {
-                    LLVMBuildBr(builder, mapping.get_bb(*loc));
-                }
-                Terminator::If { cond, t, f } => {
-                    LLVMBuildCondBr(
-                        builder,
-                        mapping.get(*cond),
-                        mapping.get_bb(*t),
-                        mapping.get_bb(*f),
-                    );
-                }
-                Terminator::ReturnNone => {
-                    LLVMBuildRetVoid(builder);
-                }
-                Terminator::Return(value) => {
-                    LLVMBuildRet(builder, mapping.get(*value));
-                }
-            }
-        }
     }
 
     fn eval_cfg(&mut self, mapping: &mut CFGMapping, function: *mut LLVMValue, cfg: &CFG<'a>) {
@@ -436,8 +419,6 @@ impl<'a> Codegen<'a> {
             bb.instructions
                 .iter()
                 .for_each(|inst| self.eval_instruction(self.builder, mapping, inst));
-
-            self.eval_terminator(self.builder, mapping, &bb.terminator);
         }
     }
 

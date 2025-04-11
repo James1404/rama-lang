@@ -7,7 +7,7 @@ use typed_index_collections::TiVec;
 
 use crate::types::{FnType, Type, TypeContext, TypeID};
 
-#[derive(Debug, Clone, Copy, From, Into)]
+#[derive(Debug, Clone, Copy, From, Into, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Loc(pub usize);
 
 impl Display for Loc {
@@ -37,6 +37,8 @@ pub enum CmpKind {
 
 #[derive(Debug, Clone)]
 pub enum Instruction<'a> {
+    Nop,
+
     Add {
         dest: Ref,
         lhs: Ref,
@@ -153,6 +155,16 @@ pub enum Instruction<'a> {
         dest: Ref,
         value: &'a str,
     },
+
+    // Control flow
+    Goto(Loc),
+    If {
+        cond: Ref,
+        t: Loc,
+        f: Loc,
+    },
+    ReturnNone,
+    Return(Ref),
 }
 
 impl<'a> Instruction<'a> {
@@ -167,88 +179,74 @@ pub struct InstructionFmt<'a> {
 }
 
 impl<'a> Display for InstructionFmt<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.inst {
-            Instruction::Add { dest, lhs, rhs } => write!(f, "{} = {} + {}", dest, lhs, rhs),
-            Instruction::Sub { dest, lhs, rhs } => write!(f, "{} = {} - {}", dest, lhs, rhs),
-            Instruction::Mul { dest, lhs, rhs } => write!(f, "{} = {} * {}", dest, lhs, rhs),
-            Instruction::Div { dest, lhs, rhs } => write!(f, "{} = {} / {}", dest, lhs, rhs),
+            Instruction::Nop => write!(fmt, "nop"),
+            Instruction::Add { dest, lhs, rhs } => write!(fmt, "{} = {} + {}", dest, lhs, rhs),
+            Instruction::Sub { dest, lhs, rhs } => write!(fmt, "{} = {} - {}", dest, lhs, rhs),
+            Instruction::Mul { dest, lhs, rhs } => write!(fmt, "{} = {} * {}", dest, lhs, rhs),
+            Instruction::Div { dest, lhs, rhs } => write!(fmt, "{} = {} / {}", dest, lhs, rhs),
             Instruction::Cmp {
                 dest,
                 lhs,
                 rhs,
                 kind,
                 ..
-            } => write!(f, "{} = cmp {} {} {}", dest, kind, lhs, rhs),
-            Instruction::Negate { dest, value } => write!(f, "{} = -{}", dest, value),
-            Instruction::Not { dest, value } => write!(f, "{} = !{}", dest, value),
+            } => write!(fmt, "{} = cmp {} {} {}", dest, kind, lhs, rhs),
+            Instruction::Negate { dest, value } => write!(fmt, "{} = -{}", dest, value),
+            Instruction::Not { dest, value } => write!(fmt, "{} = !{}", dest, value),
 
-            Instruction::MakeVar { dest, value, ty: _ } => write!(f, "var {} = {}", dest, value),
-            Instruction::ReadVar { dest, var } => write!(f, "{} = read_var {}", dest, var),
-            Instruction::WriteVar { var, value } => write!(f, "store {} {}", var, value),
+            Instruction::MakeVar { dest, value, ty: _ } => write!(fmt, "var {} = {}", dest, value),
+            Instruction::ReadVar { dest, var } => write!(fmt, "{} = read_var {}", dest, var),
+            Instruction::WriteVar { var, value } => write!(fmt, "store {} {}", var, value),
 
-            Instruction::Ref { dest, value } => write!(f, "{} = ref {}", dest, value),
-            Instruction::Deref { dest, value } => write!(f, "{} = deref {}", dest, value),
+            Instruction::Ref { dest, value } => write!(fmt, "{} = ref {}", dest, value),
+            Instruction::Deref { dest, value } => write!(fmt, "{} = deref {}", dest, value),
             Instruction::Cast {
                 dest, value, to, ..
-            } => write!(f, "{} = {} as {}", dest, value, self.tir.ctx.display(*to)),
+            } => write!(fmt, "{} = {} as {}", dest, value, self.tir.ctx.display(*to)),
 
             Instruction::MakeStruct { dest, ty } => {
-                write!(f, "{} = make {}", dest, self.tir.ctx.display(*ty))
+                write!(fmt, "{} = make {}", dest, self.tir.ctx.display(*ty))
             }
             Instruction::ReadField {
                 dest,
                 r#struct,
                 field,
                 ty: _,
-            } => write!(f, "{} = {}.{}", dest, r#struct, field),
+            } => write!(fmt, "{} = {}.{}", dest, r#struct, field),
             Instruction::WriteField {
                 r#struct,
                 field,
                 value,
                 ty: _,
-            } => write!(f, "{}.{} = {}", r#struct, field, value),
+            } => write!(fmt, "{}.{} = {}", r#struct, field, value),
 
-            Instruction::ReadArg { dest, index } => write!(f, "{} = arg {}", dest, index),
+            Instruction::ReadArg { dest, index } => write!(fmt, "{} = arg {}", dest, index),
 
             Instruction::Call { dest, func, args } => {
-                write!(f, "{} = call {} (", dest, self.tir.get_func(*func).name)?;
+                write!(fmt, "{} = call {} (", dest, self.tir.get_func(*func).name)?;
 
                 for arg in args {
-                    write!(f, "{}, ", arg)?;
+                    write!(fmt, "{}, ", arg)?;
                 }
 
-                write!(f, ")")
+                write!(fmt, ")")
             }
             Instruction::Integer { dest, value, ty } => {
-                write!(f, "{} = {}({})", dest, self.tir.ctx.display(*ty), value)
+                write!(fmt, "{} = {}({})", dest, self.tir.ctx.display(*ty), value)
             }
             Instruction::Float { dest, value, ty } => {
-                write!(f, "{} = {}({})", dest, self.tir.ctx.display(*ty), value)
+                write!(fmt, "{} = {}({})", dest, self.tir.ctx.display(*ty), value)
             }
-            Instruction::Bool { dest, value } => write!(f, "{} = {}", dest, value),
-            Instruction::String { dest, value } => write!(f, "{} = string \"{}\"", dest, value),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Terminator {
-    Goto(Loc),
-    If { cond: Ref, t: Loc, f: Loc },
-    ReturnNone,
-    Return(Ref),
-}
-
-impl Display for Terminator {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Terminator::Goto(loc) => write!(fmt, "goto {}", loc),
-            Terminator::If { cond, t, f } => {
+            Instruction::Bool { dest, value } => write!(fmt, "{} = {}", dest, value),
+            Instruction::String { dest, value } => write!(fmt, "{} = string \"{}\"", dest, value),
+            Instruction::Goto(loc) => write!(fmt, "goto {}", loc),
+            Instruction::If { cond, t, f } => {
                 write!(fmt, "if {} then goto {} else goto {}", cond, t, f)
             }
-            Terminator::ReturnNone => write!(fmt, "return"),
-            Terminator::Return(value) => write!(fmt, "return {}", value),
+            Instruction::ReturnNone => write!(fmt, "return"),
+            Instruction::Return(value) => write!(fmt, "return {}", value),
         }
     }
 }
@@ -256,7 +254,6 @@ impl Display for Terminator {
 #[derive(Debug, Clone)]
 pub struct BasicBlock<'a> {
     pub instructions: Vec<Instruction<'a>>,
-    pub terminator: Terminator,
 }
 
 #[derive(Debug, Clone)]
@@ -332,8 +329,6 @@ impl<'a> TIR<'a> {
                 for inst in &bb.instructions {
                     println!("\t{}", inst.display(self));
                 }
-
-                println!("\t{}", bb.terminator);
             }
 
             println!("}}");
