@@ -292,7 +292,7 @@ impl<'a> CFGBuilder<'a> {
                 value,
             } => {
                 let ty = self.tast.get_type_id(node);
-                let value = self.eval_expr(cfg, value);
+                let value = self.eval_expr(block, value);
                 let dest = self.reg();
                 self.append(Instruction::MakeVar { dest, value, ty });
                 self.scope
@@ -327,7 +327,7 @@ impl<'a> CFGBuilder<'a> {
                     });
                 }
                 _ => {
-                    self.eval_expr(cfg, value);
+                    self.eval_expr(block, value);
                 }
             },
 
@@ -336,11 +336,11 @@ impl<'a> CFGBuilder<'a> {
             }
 
             Node::Return(value) => {
-                let value = self.eval_expr(cfg, value);
+                let value = unpack!(block = self.eval_expr(block, value));
                 self.finish_block(Terminator::Return(value));
             }
             Node::If { cond, t, f } => {
-                let cond = self.eval_expr(cfg, cond);
+                let cond = unpack!(block = self.eval_expr(block, cond));
 
                 let start = self.finish_block(Terminator::If {
                     cond,
