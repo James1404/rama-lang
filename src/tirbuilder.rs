@@ -240,7 +240,10 @@ impl<'a> CFGBuilder<'a> {
             Node::FnCall { func, args } => {
                 let name = self.tast.get_ident(func);
                 let func = self.funcs.get(name);
-                let args = args.iter().map(|arg| unpack!(block = self.eval_expr(block, *arg))).collect_vec();
+                let args = args
+                    .iter()
+                    .map(|arg| unpack!(block = self.eval_expr(block, *arg)))
+                    .collect_vec();
 
                 let dest = self.reg();
                 self.append(Instruction::Call { dest, func, args });
@@ -316,8 +319,8 @@ impl<'a> CFGBuilder<'a> {
                         _ => panic!(),
                     };
 
-                    let structvalue = self.eval_expr(structvalue);
-                    let value = self.eval_expr(value);
+                    let structvalue = unpack!(block = self.eval_expr(structvalue));
+                    let value = unpack!(block = self.eval_expr(value));
 
                     self.append(Instruction::WriteField {
                         r#struct: structvalue,
@@ -327,7 +330,7 @@ impl<'a> CFGBuilder<'a> {
                     });
                 }
                 _ => {
-                    self.eval_expr(block, value);
+                    unpack!(block = self.eval_expr(value))
                 }
             },
 
