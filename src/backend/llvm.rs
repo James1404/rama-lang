@@ -8,7 +8,7 @@ use crate::{
 
 extern crate llvm_sys as llvm;
 
-use itertools::Itertools;
+use itertools::{izip, Itertools};
 use llvm::{core::*, transforms::pass_builder::*, *};
 use llvm_sys::target_machine::{
     LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetMachine, LLVMGetDefaultTargetTriple,
@@ -414,7 +414,10 @@ impl<'a> Codegen<'a> {
             };
 
             mapping.push_bb(llvm_bb);
-            unsafe { LLVMPositionBuilderAtEnd(self.builder, llvm_bb) };
+        }
+
+        for (bb, llvm_bb) in izip!(cfg.blocks.iter(), mapping.basic_blocks.clone().iter()) {
+            unsafe { LLVMPositionBuilderAtEnd(self.builder, *llvm_bb) };
 
             bb.instructions
                 .iter()

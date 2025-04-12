@@ -4,7 +4,7 @@ build:
 run *ARGS='':
     @cargo run -- {{ARGS}}
 
-tests: (run "--print-ast test")
+tests: (run "test")
 
 commit MSG:
     @git add .

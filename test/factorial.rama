@@ -1,9 +1,12 @@
 fn factorial(n: i32) i32 {
+   var value = 1;
    if n == 0 {
-      return 1;
+      value =  1;
    } else {
-      return factorial(n - 1);
+      value = factorial(n - 1);
    }
+
+   return value;
 }
 
 fn main() void {

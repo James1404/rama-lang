@@ -100,7 +100,7 @@ where
         return Ok(());
     }
 
-    tast.print();
+    //tast.print();
 
     let tirbuilder = TIRBuilder::new(tast);
     let tir = tirbuilder.build();

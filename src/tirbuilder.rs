@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use itertools::Itertools;
 use typed_index_collections::{TiVec, ti_vec};
@@ -323,37 +323,44 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
     }
 
     fn build(self) -> CFG<'a> {
-        let mut leaders = Vec::<Loc>::new();
-        leaders.push(0.into());
+        let mut leaders = BTreeSet::<Loc>::new();
+        leaders.insert(0.into());
 
         for (idx, inst) in self.instructions.iter().enumerate() {
             match *inst {
                 Instruction::If { cond: _, t, f } => {
-                    leaders.push(t);
-                    leaders.push(f);
+                    leaders.insert(t);
+                    leaders.insert(f);
                 }
                 Instruction::Goto(loc) => {
-                    leaders.push(loc);
+                    leaders.insert(loc);
                 }
                 Instruction::ReturnNone | Instruction::Return(_) => {}
                 _ => continue,
             }
 
-            leaders.push(Loc(idx));
+            leaders.insert(Loc(idx + 1));
         }
-        leaders.sort();
 
         let mut blocks = TiVec::<Loc, BasicBlock>::new();
 
         let mut iter = leaders.iter().peekable();
         while let Some(leader) = iter.next() {
             match iter.peek() {
-                Some(_) => blocks.push(BasicBlock {
-                    instructions: Vec::from_iter(
-                        self.instructions[*leader..**iter.peek().unwrap()]
-                            .iter()
-                            .cloned(),
-                    ),
+                Some(next) => blocks.push(BasicBlock {
+                    instructions: Vec::from_iter(self.instructions[*leader..**next].iter().map(
+                        |inst| match inst {
+                            Instruction::If { cond, t, f } => Instruction::If {
+                                cond: *cond,
+                                t: leaders.iter().position(|x| x == t).unwrap().into(),
+                                f: leaders.iter().position(|x| x == f).unwrap().into(),
+                            },
+                            Instruction::Goto(loc) => Instruction::Goto(
+                                leaders.iter().position(|x| x == loc).unwrap().into(),
+                            ),
+                            inst => inst.clone(),
+                        },
+                    )),
                 }),
                 None => {}
             }
