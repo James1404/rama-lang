@@ -403,12 +403,9 @@ impl<'a> Codegen<'a> {
                 }
 
                 Instruction::Goto(loc) => LLVMBuildBr(builder, mapping.get_bb(*loc)),
-                Instruction::If { cond, t, f } => LLVMBuildCondBr(
-                    builder,
-                    mapping.get(*cond),
-                    mapping.get_bb(*t),
-                    mapping.get_bb(*f),
-                ),
+                Instruction::Goto_if { cond, loc } => todo!(),
+                Instruction::Goto_if_not { cond, loc } => todo!(),
+
                 Instruction::ReturnNone => LLVMBuildRetVoid(builder),
                 Instruction::Return(value) => LLVMBuildRet(builder, mapping.get(*value)),
             };

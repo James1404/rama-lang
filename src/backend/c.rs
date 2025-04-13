@@ -79,35 +79,35 @@ impl<'a> CodeBuilder<'a> {
         match inst {
             Instruction::Nop => panic!(),
 
-            Instruction::Add { dest, lhs, rhs } => {
+            Instruction::Add { dest, lhs, rhs, ty } => {
                 let dest = Self::reg(*dest);
                 let lhs = Self::reg(*lhs);
                 let rhs = Self::reg(*rhs);
-                let ty = "TODO";
+                let ty = self.convert_type(*ty);
 
                 writeln!(self.code, "{ty} {dest} = {lhs} + {rhs};")
             }
-            Instruction::Sub { dest, lhs, rhs } => {
+            Instruction::Sub { dest, lhs, rhs, ty } => {
                 let dest = Self::reg(*dest);
                 let lhs = Self::reg(*lhs);
                 let rhs = Self::reg(*rhs);
-                let ty = "TODO";
+                let ty = self.convert_type(*ty);
 
                 writeln!(self.code, "{ty} {dest} = {lhs} - {rhs};")
             }
-            Instruction::Mul { dest, lhs, rhs } => {
+            Instruction::Mul { dest, lhs, rhs,ty } => {
                 let dest = Self::reg(*dest);
                 let lhs = Self::reg(*lhs);
                 let rhs = Self::reg(*rhs);
-                let ty = "TODO";
+                let ty = self.convert_type(*ty);
 
                 writeln!(self.code, "{ty} {dest} = {lhs} * {rhs};")
             }
-            Instruction::Div { dest, lhs, rhs } => {
+            Instruction::Div { dest, lhs, rhs,ty } => {
                 let dest = Self::reg(*dest);
                 let lhs = Self::reg(*lhs);
                 let rhs = Self::reg(*rhs);
-                let ty = "TODO";
+                let ty = self.convert_type(*ty);
 
                 writeln!(self.code, "{ty} {dest} = {lhs} / {rhs};")
             }
@@ -254,13 +254,8 @@ impl<'a> CodeBuilder<'a> {
             }
 
             Instruction::Goto(loc) => writeln!(self.code, "goto {};", Self::loc(*loc)),
-            Instruction::If { cond, t, f } => writeln!(
-                self.code,
-                "if ({}) goto {} else goto {}",
-                Self::reg(*cond),
-                Self::loc(*t),
-                Self::loc(*f)
-            ),
+            Instruction::Goto_if { cond, loc } => writeln!(self.code, "if ({}) goto {};", Self::reg(*cond), Self::loc(*loc)),
+            Instruction::Goto_if_not { cond, loc } => writeln!(self.code, "if (!{}) goto {};", Self::reg(*cond), Self::loc(*loc)),
 
             Instruction::ReturnNone => writeln!(self.code, "return;"),
             Instruction::Return(value) => writeln!(self.code, "return {};", Self::reg(*value)),
@@ -292,6 +287,8 @@ impl<'a> CodeBuilder<'a> {
         self.include_std("stdbool.h")?;
         self.include_std("stdint.h")?;
         self.include_std("string.h")?;
+
+        self.newline()?;
 
         self.typedef("f32", "float")?;
         self.typedef("f64", "long double")?;

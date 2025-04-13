@@ -762,7 +762,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
         if !self.cursor.advance_if(TokenType::RBrace) {
             return Err(ParserError::Msg {
-                msg: "Expect closing brace at end of statement".to_owned(),
+                msg: "Expected closing brace at end of statement".to_owned(),
                 token,
             });
         }
@@ -886,13 +886,13 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             let cond = self.parse_expr()?;
             let t = self.parse_block()?;
 
-            if !self.cursor.advance_if(TokenType::Else) {
-                break 'outer;
+            return if self.cursor.advance_if(TokenType::Else) {
+                let f = self.parse_block()?;
+                Ok(self.alloc(Node::IfElse { cond, t, f }))
             }
-
-            let f = self.parse_block()?;
-
-            return Ok(self.alloc(Node::If { cond, t, f }));
+            else {
+                Ok(self.alloc(Node::If { cond, block: t }))
+            };
         }
 
         return Err(ParserError::Msg {

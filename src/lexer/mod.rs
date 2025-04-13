@@ -106,6 +106,7 @@ impl<'a> Lexer<'a> {
                 b'+' => self.append_single_or_next(b'=', TokenType::PlusEq, TokenType::Plus),
                 b'-' => self.append_single_or_next(b'=', TokenType::MinusEq, TokenType::Minus),
                 b'*' => self.append_single_or_next(b'=', TokenType::MulEq, TokenType::Asterix),
+
                 b'/' => {
                     self.advance();
 
@@ -120,6 +121,9 @@ impl<'a> Lexer<'a> {
                         _ => self.append(TokenType::Slash),
                     }
                 }
+
+                b'>' => self.append_single_or_next(b'=', TokenType::LessEq, TokenType::Less),
+                b'<' => self.append_single_or_next(b'=', TokenType::GreaterEq, TokenType::Greater),
 
                 b'=' => self.append_single_or_next(b'=', TokenType::EqualEqual, TokenType::Equal),
                 b'!' => self.append_single_or_next(b'=', TokenType::NotEqual, TokenType::Not),

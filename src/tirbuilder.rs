@@ -53,12 +53,13 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 let lhs = self.eval_expr(l);
                 let rhs = self.eval_expr(r);
                 let dest = self.reg();
+                let ty = self.tast.get_type_id(node);
 
                 match op.ty {
-                    TokenType::Plus => self.append(Instruction::Add { dest, lhs, rhs }),
-                    TokenType::Minus => self.append(Instruction::Sub { dest, lhs, rhs }),
-                    TokenType::Asterix => self.append(Instruction::Mul { dest, lhs, rhs }),
-                    TokenType::Slash => self.append(Instruction::Div { dest, lhs, rhs }),
+                    TokenType::Plus => self.append(Instruction::Add { dest, lhs, rhs, ty }),
+                    TokenType::Minus => self.append(Instruction::Sub { dest, lhs, rhs, ty }),
+                    TokenType::Asterix => self.append(Instruction::Mul { dest, lhs, rhs, ty }),
+                    TokenType::Slash => self.append(Instruction::Div { dest, lhs, rhs, ty }),
 
                     TokenType::EqualEqual => self.append(Instruction::Cmp {
                         dest,
@@ -166,9 +167,10 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
             Node::FieldAccess(value, field) => {
                 let field = self.tast.get_ident(field);
                 let (idx, field) = match self.tast.get_ty(value) {
-                    Type::ADT(ADT { fields, .. }) => {
-                        fields.into_iter().find_position(|f| f.ident == field).unwrap()
-                    }
+                    Type::ADT(ADT { fields, .. }) => fields
+                        .into_iter()
+                        .find_position(|f| f.ident == field)
+                        .unwrap(),
                     _ => panic!(),
                 };
                 let value = self.eval_expr(value);
@@ -216,15 +218,14 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
 
                 if let Some(result) = result {
                     self.eval_expr(result)
-                }
-                else {
+                } else {
                     let dest = self.reg();
                     self.append(Instruction::Unit { dest });
                     dest
                 }
             }
 
-            Node::If { cond, t, f } => {
+            Node::IfElse { cond, t, f } => {
                 let ty = self.tast.get_type_id(node);
                 let value = {
                     let dest = self.reg();
@@ -237,34 +238,21 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
 
                 let cond = self.eval_expr(cond);
 
-                let start = self.append(Instruction::If {
+                let start = self.append(Instruction::Goto_if_not {
                     cond,
-                    t: 0.into(),
-                    f: 0.into(),
+                    loc: 0.into(),
                 });
-
-                let tstart = self.get_next_loc();
 
                 let value = self.eval_expr(t);
-                self.append(Instruction::WriteVar {
-                    var: dest,
-                    value,
-                });
+                self.append(Instruction::WriteVar { var: dest, value });
                 let t = self.append(Instruction::Nop);
 
                 let fstart = self.get_next_loc();
                 let value = self.eval_expr(f);
-                self.append(Instruction::WriteVar {
-                    var: dest,
-                    value,
-                });
+                self.append(Instruction::WriteVar { var: dest, value });
                 let f = self.append(Instruction::Nop);
 
-                self.instructions[start] = Instruction::If {
-                    cond,
-                    t: tstart,
-                    f: fstart,
-                };
+                self.instructions[start] = Instruction::Goto_if_not { cond, loc: fstart };
 
                 let end = self.get_next_loc();
 
@@ -334,6 +322,20 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 }
             },
 
+            Node::If { cond, block } => {
+                let cond = self.eval_expr(cond);
+
+                let start = self.append(Instruction::Goto_if_not {
+                    cond,
+                    loc: 0.into(),
+                });
+
+                self.eval_expr(block);
+
+                let end = self.get_next_loc();
+                self.instructions[start] = Instruction::Goto_if_not { cond, loc: end };
+            }
+
             Node::ReturnNone => {
                 self.append(Instruction::ReturnNone);
             }
@@ -359,9 +361,11 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
 
         for (idx, inst) in self.instructions.iter().enumerate() {
             match *inst {
-                Instruction::If { cond: _, t, f } => {
-                    leaders.insert(t);
-                    leaders.insert(f);
+                Instruction::Goto_if { cond: _, loc } => {
+                    leaders.insert(loc);
+                }
+                Instruction::Goto_if_not { cond: _, loc } => {
+                    leaders.insert(loc);
                 }
                 Instruction::Goto(loc) => {
                     leaders.insert(loc);
@@ -381,10 +385,13 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 Some(next) => blocks.push(BasicBlock {
                     instructions: Vec::from_iter(self.instructions[*leader..**next].iter().map(
                         |inst| match inst {
-                            Instruction::If { cond, t, f } => Instruction::If {
+                            Instruction::Goto_if { cond, loc } => Instruction::Goto_if {
                                 cond: *cond,
-                                t: leaders.iter().position(|x| x == t).unwrap().into(),
-                                f: leaders.iter().position(|x| x == f).unwrap().into(),
+                                loc: leaders.iter().position(|x| x == loc).unwrap().into(),
+                            },
+                            Instruction::Goto_if_not { cond, loc } => Instruction::Goto_if_not {
+                                cond: *cond,
+                                loc: leaders.iter().position(|x| x == loc).unwrap().into(),
                             },
                             Instruction::Goto(loc) => Instruction::Goto(
                                 leaders.iter().position(|x| x == loc).unwrap().into(),
@@ -397,7 +404,9 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
             }
         }
 
-        blocks.push(BasicBlock { instructions: vec![] });
+        blocks.push(BasicBlock {
+            instructions: vec![],
+        });
 
         CFG { blocks }
     }

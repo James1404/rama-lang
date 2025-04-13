@@ -43,21 +43,25 @@ pub enum Instruction<'a> {
         dest: Ref,
         lhs: Ref,
         rhs: Ref,
+        ty: TypeID,
     },
     Sub {
         dest: Ref,
         lhs: Ref,
         rhs: Ref,
+        ty: TypeID,
     },
     Mul {
         dest: Ref,
         lhs: Ref,
         rhs: Ref,
+        ty: TypeID,
     },
     Div {
         dest: Ref,
         lhs: Ref,
         rhs: Ref,
+        ty: TypeID,
     },
 
     Cmp {
@@ -161,11 +165,15 @@ pub enum Instruction<'a> {
 
     // Control flow
     Goto(Loc),
-    If {
+    Goto_if {
         cond: Ref,
-        t: Loc,
-        f: Loc,
+        loc: Loc,
     },
+    Goto_if_not {
+        cond: Ref,
+        loc: Loc,
+    },
+
     ReturnNone,
     Return(Ref),
 }
@@ -185,10 +193,30 @@ impl<'a> Display for InstructionFmt<'a> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.inst {
             Instruction::Nop => write!(fmt, "nop"),
-            Instruction::Add { dest, lhs, rhs } => write!(fmt, "{} = {} + {}", dest, lhs, rhs),
-            Instruction::Sub { dest, lhs, rhs } => write!(fmt, "{} = {} - {}", dest, lhs, rhs),
-            Instruction::Mul { dest, lhs, rhs } => write!(fmt, "{} = {} * {}", dest, lhs, rhs),
-            Instruction::Div { dest, lhs, rhs } => write!(fmt, "{} = {} / {}", dest, lhs, rhs),
+            Instruction::Add {
+                dest,
+                lhs,
+                rhs,
+                ty: _,
+            } => write!(fmt, "{} = {} + {}", dest, lhs, rhs),
+            Instruction::Sub {
+                dest,
+                lhs,
+                rhs,
+                ty: _,
+            } => write!(fmt, "{} = {} - {}", dest, lhs, rhs),
+            Instruction::Mul {
+                dest,
+                lhs,
+                rhs,
+                ty: _,
+            } => write!(fmt, "{} = {} * {}", dest, lhs, rhs),
+            Instruction::Div {
+                dest,
+                lhs,
+                rhs,
+                ty: _,
+            } => write!(fmt, "{} = {} / {}", dest, lhs, rhs),
             Instruction::Cmp {
                 dest,
                 lhs,
@@ -199,7 +227,9 @@ impl<'a> Display for InstructionFmt<'a> {
             Instruction::Negate { dest, value } => write!(fmt, "{} = -{}", dest, value),
             Instruction::Not { dest, value } => write!(fmt, "{} = !{}", dest, value),
 
-            Instruction::MakeVar { dest, value, ty: _ } => write!(fmt, "make_var {} = {}", dest, value),
+            Instruction::MakeVar { dest, value, ty: _ } => {
+                write!(fmt, "make_var {} = {}", dest, value)
+            }
             Instruction::ReadVar { dest, var } => write!(fmt, "{} = read_var {}", dest, var),
             Instruction::WriteVar { var, value } => write!(fmt, "write_var {} {}", var, value),
 
@@ -250,9 +280,9 @@ impl<'a> Display for InstructionFmt<'a> {
             Instruction::String { dest, value } => write!(fmt, "{} = string \"{}\"", dest, value),
             Instruction::Unit { dest } => write!(fmt, "{} = unit", dest),
             Instruction::Goto(loc) => write!(fmt, "goto {}", loc),
-            Instruction::If { cond, t, f } => {
-                write!(fmt, "if {} then goto {} else goto {}", cond, t, f)
-            }
+            Instruction::Goto_if { cond, loc } => write!(fmt, "goto {} if {}", loc, cond),
+            Instruction::Goto_if_not { cond, loc } => write!(fmt, "goto {} if not {}", loc, cond),
+
             Instruction::ReturnNone => write!(fmt, "return"),
             Instruction::Return(value) => write!(fmt, "return {}", value),
         }

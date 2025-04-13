@@ -101,6 +101,11 @@ pub enum Node<'a> {
 
     If {
         cond: Ref,
+        block: Ref,
+    },
+
+    IfElse {
+        cond: Ref,
         t: Ref,
         f: Ref,
     },
@@ -310,11 +315,16 @@ impl<'a> ASTView<'a> {
                 self.print(lhs, indentation + 1);
                 self.print(ident, indentation + 1);
             }
-            Node::If { cond, t, f } => {
+            Node::If { cond, block } => {
+                self.print(cond, indentation + 1);
+                self.print(block, indentation + 1);
+            }
+            Node::IfElse { cond, t, f } => {
                 self.print(cond, indentation + 1);
                 self.print(t, indentation + 1);
                 self.print(f, indentation + 1);
             }
+            
             Node::Match { value, branches } => {
                 self.print(value, indentation + 1);
                 for node in branches {

@@ -285,7 +285,7 @@ impl<'ast> Sema<'ast> {
                 }
             }
 
-            Node::If { cond, t, f } => {
+            Node::IfElse { cond, t, f } => {
                 let b = self.ctx.alloc(Type::Bool);
                 self.check(cond, b)?;
 
@@ -484,6 +484,13 @@ impl<'ast> Sema<'ast> {
                 let ty = self.infer(ident)?;
                 self.check(value, ty)?;
                 self.metadata.set(node, ty);
+            }
+
+            Node::If { cond, block } => {
+                let b = self.ctx.alloc(Type::Bool);
+                self.check(cond, b)?;
+
+                self.eval(block)?;
             }
 
             Node::ReturnNone => {}
