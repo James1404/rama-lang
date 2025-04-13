@@ -31,10 +31,12 @@ Rama will be compiled to machine code via LLVM, meaning you'll have a fast binar
 
 ## Building
 
+Either run: `cargo run`
+
 ### Dependencies
 
 - Rustc
 - Cargo
-- llvm-20
+- LLVM-20
 
 The better option is to use the nix package manager and run `nix develop`

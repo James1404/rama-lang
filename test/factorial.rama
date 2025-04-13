@@ -8,5 +8,4 @@ fn factorial(n: i32) i32 {
 
 fn main() void {
    factorial(25);
-   return;
 }

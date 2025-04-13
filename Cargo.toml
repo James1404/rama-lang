@@ -10,7 +10,7 @@ phf = { version = "0.11.3", features = [ "macros" ] }
 
 strum_macros = "0.27.1"
 
-derive_more = { version = "2.0.1", features = [ "display", "from", "into", "add" ] }
+derive_more = { version = "2.0.1", features = [ "display", "from", "into", "add", "error" ] }
 either = "1.15.0"
 
 clap = { version = "4.5.34", features = [ "derive" ] }

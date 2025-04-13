@@ -3,8 +3,10 @@ use std::{fs, io, path::Path};
 #[macro_use]
 extern crate derive_more;
 
+use backend::Backend;
 use clap_complete::{Generator, Shell, generate};
 use lexer::Lexer;
+use log::error;
 use metadata::Metadata;
 use parser::Parser;
 
@@ -38,6 +40,9 @@ struct Cli {
     print_tokens: bool,
     #[arg(long)]
     print_ast: bool,
+
+    #[arg(short, long, value_enum)]
+    backend: Backend,
 }
 
 #[derive(Subcommand)]
@@ -53,7 +58,7 @@ where
 
     let fullpath = path.as_ref().to_str().unwrap();
     let metadata = Metadata {
-        filename: path.as_ref().file_name().unwrap(),
+        filename: path.as_ref().file_name().unwrap().to_str().unwrap(),
         path: fullpath,
     };
 
@@ -106,8 +111,10 @@ where
     tir.pretty_print();
 
     println!("<== Starting CodeGen ==>");
-    let backend = backend::llvm::Codegen::new(tir, metadata);
-    backend.run();
+    match backend::compile(tir, metadata, cli.backend) {
+        Ok(_) => {},
+        Err(err) => error!("{}", err),
+    }
 
     Ok(())
 }

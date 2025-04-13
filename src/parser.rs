@@ -774,10 +774,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             .collect_vec();
 
         if errors.is_empty() {
-            Ok(self.alloc(Node::Block {
-                stmts,
-                result,
-            }))
+            Ok(self.alloc(Node::Block { stmts, result }))
         } else {
             Err(ParserError::Many(errors))
         }

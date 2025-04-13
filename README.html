@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+<title>README.html</title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
+
+</head>
+
+<body>
+
+<h1 id="rama">Rama</h1>
+<p>Rama is a work-in-progress, programming language, that’s focused on
+speed, low level control, and safety.</p>
+<p>The goal of this langauge for it to be suitable for system’s
+programming, similar to C. So Rama will support manual memory
+management, and strong type system, and a potentially even a borrow
+checker for better safety guarentees.</p>
+<p>Rama will be compiled to machine code via LLVM, meaning you’ll have a
+fast binary to use.</p>
+<ul class="task-list">
+<li><label><input type="checkbox" />Language Design</label>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />Type system</label>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />Struct
+design</label></li>
+<li><label><input type="checkbox" checked="" />Enum design</label></li>
+<li><label><input type="checkbox" checked="" />Interface
+design</label></li>
+</ul></li>
+<li><label><input type="checkbox" checked="" />Control flow
+structures</label>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />If
+statements</label></li>
+<li><label><input type="checkbox" />For loop</label>
+<ul class="task-list">
+<li><label><input type="checkbox" />Loop over common
+containers</label></li>
+<li><label><input type="checkbox" />Loop over ranges</label></li>
+</ul></li>
+<li><label><input type="checkbox" />While loop</label></li>
+<li><label><input type="checkbox" />Plain loops</label></li>
+</ul></li>
+</ul></li>
+<li><label><input type="checkbox" checked="" />Complete the
+lexer.</label></li>
+<li><label><input type="checkbox" checked="" />Complete the
+parser.</label></li>
+<li><label><input type="checkbox" />Semantic Analysis (Sema)</label>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />Check and infer
+types</label></li>
+<li><label><input type="checkbox" checked="" />Output fully typed
+TIR</label></li>
+</ul></li>
+<li><label><input type="checkbox" />Typed IR (TIR)</label>
+<ul class="task-list">
+<li><label><input type="checkbox" />Complete TIR Instruction
+set</label></li>
+<li><label><input type="checkbox" />Full format
+specification</label></li>
+</ul></li>
+<li><label><input type="checkbox" checked="" />Compile TIR down to
+machine code via LLVM.</label></li>
+<li><label><input type="checkbox" />Implement a borrow checker to
+guarantee memory safety.</label></li>
+</ul>
+<h2 id="building">Building</h2>
+<p>Either run: <code>cargo run</code></p>
+<h3 id="dependencies">Dependencies</h3>
+<ul>
+<li>Rustc</li>
+<li>Cargo</li>
+<li>LLVM-20</li>
+</ul>
+<p>The better option is to use the nix package manager and run
+<code>nix develop</code></p>
+
+</body>
+</html>

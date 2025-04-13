@@ -1,5 +1,5 @@
-use log::error;
 use derive_more::Display;
+use log::error;
 
 use crate::lexer::Token;
 
@@ -18,9 +18,7 @@ pub enum Literal<'a> {
     Int(&'a str),
     String(&'a str),
     Bool(bool),
-    Struct {
-        fields: Vec<LiteralStructField>,
-    },
+    Struct { fields: Vec<LiteralStructField> },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -231,11 +229,11 @@ impl<'a> ASTView<'a> {
             }
 
             Node::Literal(lit) => match lit {
-                Literal::Float(val) => out!(indentation + 1, "{}", val),
-                Literal::Int(val) => out!(indentation + 1, "{}", val),
-                Literal::String(val) => out!(indentation + 1, "{}", val),
-                Literal::Bool(val) => out!(indentation + 1, "{}", val),
-                Literal::Struct{ fields} => {
+                Literal::Float(val) => out!(indentation + 1, "float({})", val),
+                Literal::Int(val) => out!(indentation + 1, "int({})", val),
+                Literal::String(val) => out!(indentation + 1, "string({})", val),
+                Literal::Bool(val) => out!(indentation + 1, "bool({})", val),
+                Literal::Struct { fields } => {
                     for field in fields {
                         out!(indentation + 1, "field");
                         self.print(field.ident, indentation + 2);
@@ -250,12 +248,12 @@ impl<'a> ASTView<'a> {
                     self.print(node, indentation + 1);
                 }
             }
-            Node::Block {stmts, result} => {
+            Node::Block { stmts, result } => {
                 for node in stmts {
                     self.print(node, indentation + 1);
                 }
 
-                out!(indentation + 1,"result:");
+                out!(indentation + 1, "result:");
                 if let Some(result) = result {
                     self.print(result, indentation + 2);
                 }
@@ -306,7 +304,7 @@ impl<'a> ASTView<'a> {
             Node::Import(path) => {
                 out!(indentation + 1, "{}", path);
             }
-            Node::ReturnNone => {},
+            Node::ReturnNone => {}
             Node::Return(value) => self.print(value, indentation + 1),
             Node::Dot { lhs, ident } => {
                 self.print(lhs, indentation + 1);
@@ -381,11 +379,10 @@ impl<'a> ASTView<'a> {
                 }
             }
 
-            
             Node::Index(value, index) => {
                 self.print(value, indentation + 1);
                 self.print(index, indentation + 1);
-            },
+            }
             Node::FieldAccess(value, field) => {
                 self.print(value, indentation + 1);
                 self.print(field, indentation + 1);

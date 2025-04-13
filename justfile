@@ -4,7 +4,7 @@ build:
 run *ARGS='':
     @cargo run -- {{ARGS}}
 
-tests: (run "--print-ast test")
+tests: (run "--print-ast --backend c test")
 
 dbg:
     rust-gdb target/debug/rama-lang
