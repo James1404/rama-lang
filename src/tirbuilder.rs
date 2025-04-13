@@ -212,6 +212,71 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 dest
             }
 
+            Node::Block { stmts, result } => {
+                for stmt in stmts {
+                    self.eval_fn_stmt(stmt);
+                }
+
+                if let Some(result) = result {
+                    self.eval_expr(result)
+                }
+                else {
+                    let dest = self.reg();
+                    self.append(Instruction::Unit { dest });
+                    dest
+                }
+            }
+
+            Node::If { cond, t, f } => {
+                let ty = self.tast.get_type_id(node);
+                let value = {
+                    let dest = self.reg();
+                    self.append(Instruction::Unit { dest });
+                    dest
+                };
+
+                let dest = self.reg();
+                self.append(Instruction::MakeVar { dest, value, ty });
+
+                let cond = self.eval_expr(cond);
+
+                let start = self.append(Instruction::If {
+                    cond,
+                    t: 0.into(),
+                    f: 0.into(),
+                });
+
+                let tstart = self.get_next_loc();
+
+                let value = self.eval_expr(t);
+                self.append(Instruction::WriteVar {
+                    var: dest,
+                    value,
+                });
+                let t = self.append(Instruction::Nop);
+
+                let fstart = self.get_next_loc();
+                let value = self.eval_expr(f);
+                self.append(Instruction::WriteVar {
+                    var: dest,
+                    value,
+                });
+                let f = self.append(Instruction::Nop);
+
+                self.instructions[start] = Instruction::If {
+                    cond,
+                    t: tstart,
+                    f: fstart,
+                };
+
+                let end = self.get_next_loc();
+
+                self.instructions[t] = Instruction::Goto(end);
+                self.instructions[f] = Instruction::Goto(end);
+
+                dest
+            }
+
             node => panic!("{:?}", node),
         }
     }
@@ -243,11 +308,6 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                     .push(self.tast.get_ident(ident), Def::Local(dest));
             }
 
-            Node::Scope(lst) => {
-                for node in lst {
-                    self.eval_fn_stmt(node);
-                }
-            }
             Node::Assignment { ident, value } => match self.tast.get_node(ident) {
                 Node::FieldAccess(structvalue, field) => {
                     let ty = self.tast.get_type_id(field);
@@ -271,7 +331,9 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                     });
                 }
                 _ => {
-                    self.eval_expr(value);
+                    let var = self.eval_expr(ident);
+                    let value = self.eval_expr(value);
+                    self.append(Instruction::WriteVar { var, value });
                 }
             },
 
@@ -282,34 +344,6 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
             Node::Return(value) => {
                 let value = self.eval_expr(value);
                 self.append(Instruction::Return(value));
-            }
-            Node::If { cond, t, f } => {
-                let cond = self.eval_expr(cond);
-
-                let start = self.append(Instruction::If {
-                    cond,
-                    t: 0.into(),
-                    f: 0.into(),
-                });
-
-                let tstart = self.get_next_loc();
-                self.eval_fn_stmt(t);
-                let t = self.append(Instruction::Nop);
-
-                let fstart = self.get_next_loc();
-                self.eval_fn_stmt(f);
-                let f = self.append(Instruction::Nop);
-
-                self.instructions[start] = Instruction::If {
-                    cond,
-                    t: tstart,
-                    f: fstart,
-                };
-
-                let end = self.get_next_loc();
-
-                self.instructions[t] = Instruction::Goto(end);
-                self.instructions[f] = Instruction::Goto(end);
             }
 
             _ => {
@@ -365,6 +399,8 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 None => {}
             }
         }
+
+        blocks.push(BasicBlock { instructions: vec![] });
 
         CFG { blocks }
     }
@@ -441,7 +477,8 @@ impl<'ast> TIRBuilder<'ast> {
                         cfg.scope.push(param.0, Def::Arg(idx));
                     }
 
-                    cfg.eval_fn_stmt(block);
+                    let value = cfg.eval_expr(block);
+                    cfg.append(Instruction::Return(value));
 
                     cfg.build()
                 };

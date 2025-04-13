@@ -56,6 +56,8 @@ pub struct FnType<'a> {
 pub enum Type<'a> {
     Void,
 
+    Unit,
+
     Bool,
     Int { size: IntSize, signed: bool },
     Float(FloatKind),
@@ -133,6 +135,7 @@ impl<'a> Display for TypeFmt<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.ctx.get(self.ty) {
             Type::Void => write!(f, "void"),
+            Type::Unit => write!(f, "unit"),
             Type::Bool => write!(f, "bool"),
             Type::Int { size, signed } => write!(
                 f,

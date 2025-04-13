@@ -8,7 +8,7 @@ use crate::{
 
 extern crate llvm_sys as llvm;
 
-use itertools::{izip, Itertools};
+use itertools::{Itertools, izip};
 use llvm::{core::*, transforms::pass_builder::*, *};
 use llvm_sys::target_machine::{
     LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetMachine, LLVMGetDefaultTargetTriple,
@@ -89,6 +89,7 @@ impl<'a> Codegen<'a> {
         unsafe {
             match self.tir.ctx.get(ty) {
                 Type::Void => LLVMVoidTypeInContext(self.context),
+                Type::Unit => LLVMArrayType2(LLVMInt8TypeInContext(self.context), 0),
                 Type::Bool => LLVMInt8TypeInContext(self.context),
                 Type::Int { size, signed } => match (signed, size) {
                     (true, IntSize::Bits8) => LLVMInt8TypeInContext(self.context),
@@ -234,17 +235,21 @@ impl<'a> Codegen<'a> {
                         _ => panic!(),
                     }
                 }
-                Instruction::Negate { .. } => todo!(),
+                Instruction::Negate { dest: _, value } => LLVMBuildNeg(
+                    builder,
+                    mapping.get(*value),
+                    CString::new("negate").unwrap().as_ptr(),
+                ),
                 Instruction::Not { .. } => todo!(),
-                Instruction::MakeVar { dest: _, value, ty: _ } => {
-                    // let name = CString::new("").unwrap();
-                    // let alloca = LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr());
-                    // let value = mapping.get(*value);
-                    // LLVMBuildStore(builder, value, alloca);
+                Instruction::MakeVar { dest: _, value, ty } => {
+                    let name = CString::new("").unwrap();
+                    let alloca = LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr());
+                    let value = mapping.get(*value);
+                    LLVMBuildStore(builder, value, alloca);
 
-                    // alloca
+                    alloca
 
-                    mapping.get(*value)
+                    //mapping.get(*value)
                 }
                 Instruction::ReadVar { dest: _, var } => mapping.get(*var),
                 Instruction::WriteVar { var, value } => {
@@ -390,6 +395,12 @@ impl<'a> Codegen<'a> {
 
                     global
                 }
+                Instruction::Unit { dest: _ } => {
+                    let ty = self.tir.ctx.alloc(Type::Unit);
+
+                    let name = CString::new("").unwrap();
+                    LLVMBuildAlloca(builder, self.type_to_llvm(ty), name.as_ptr())
+                }
 
                 Instruction::Goto(loc) => LLVMBuildBr(builder, mapping.get_bb(*loc)),
                 Instruction::If { cond, t, f } => LLVMBuildCondBr(
@@ -407,7 +418,7 @@ impl<'a> Codegen<'a> {
     }
 
     fn eval_cfg(&mut self, mapping: &mut CFGMapping, function: *mut LLVMValue, cfg: &CFG<'a>) {
-        for (idx, bb) in cfg.blocks.iter().enumerate() {
+        for idx in 0..cfg.blocks.len() {
             let llvm_name = CString::new(format!("bb{}", idx)).unwrap();
             let llvm_bb = unsafe {
                 LLVMAppendBasicBlockInContext(self.context, function, llvm_name.as_ptr())
@@ -503,8 +514,16 @@ impl<'a> Codegen<'a> {
             let builder = LLVMCreatePassBuilderOptions();
             LLVMPassBuilderOptionsSetDebugLogging(builder, true as i32);
 
-            let passes =
-                CString::new("instcombine, reassociate, gvn, simplifycfg, mem2reg").unwrap();
+            let passes = [
+                "instcombine",
+                "reassociate",
+                "gvn",
+                "simplifycfg",
+                "mem2reg",
+            ]
+            .join(", ");
+
+            let passes = CString::new(passes).unwrap();
 
             LLVMRunPasses(self.module, passes.as_ptr(), target_machine, builder);
 

@@ -59,7 +59,10 @@ pub enum Node<'a> {
     Ident(Token<'a>),
 
     TopLevelScope(Vec<Ref>),
-    Scope(Vec<Ref>),
+    Block {
+        stmts: Vec<Ref>,
+        result: Option<Ref>,
+    },
 
     ConstDecl {
         ident: Ref,
@@ -247,9 +250,14 @@ impl<'a> ASTView<'a> {
                     self.print(node, indentation + 1);
                 }
             }
-            Node::Scope(items) => {
-                for node in items {
+            Node::Block {stmts, result} => {
+                for node in stmts {
                     self.print(node, indentation + 1);
+                }
+
+                out!(indentation + 1,"result:");
+                if let Some(result) = result {
+                    self.print(result, indentation + 2);
                 }
             }
             Node::ConstDecl { ident, ty, value } => {

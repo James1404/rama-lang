@@ -155,6 +155,9 @@ pub enum Instruction<'a> {
         dest: Ref,
         value: &'a str,
     },
+    Unit {
+        dest: Ref,
+    },
 
     // Control flow
     Goto(Loc),
@@ -196,9 +199,9 @@ impl<'a> Display for InstructionFmt<'a> {
             Instruction::Negate { dest, value } => write!(fmt, "{} = -{}", dest, value),
             Instruction::Not { dest, value } => write!(fmt, "{} = !{}", dest, value),
 
-            Instruction::MakeVar { dest, value, ty: _ } => write!(fmt, "var {} = {}", dest, value),
+            Instruction::MakeVar { dest, value, ty: _ } => write!(fmt, "make_var {} = {}", dest, value),
             Instruction::ReadVar { dest, var } => write!(fmt, "{} = read_var {}", dest, var),
-            Instruction::WriteVar { var, value } => write!(fmt, "store {} {}", var, value),
+            Instruction::WriteVar { var, value } => write!(fmt, "write_var {} {}", var, value),
 
             Instruction::Ref { dest, value } => write!(fmt, "{} = ref {}", dest, value),
             Instruction::Deref { dest, value } => write!(fmt, "{} = deref {}", dest, value),
@@ -227,8 +230,12 @@ impl<'a> Display for InstructionFmt<'a> {
             Instruction::Call { dest, func, args } => {
                 write!(fmt, "{} = call {} (", dest, self.tir.get_func(*func).name)?;
 
-                for arg in args {
-                    write!(fmt, "{}, ", arg)?;
+                let mut iter = args.iter().peekable();
+                while let Some(arg) = iter.next() {
+                    print!("{}", arg);
+                    if iter.peek().is_some() {
+                        print!(", ");
+                    }
                 }
 
                 write!(fmt, ")")
@@ -241,6 +248,7 @@ impl<'a> Display for InstructionFmt<'a> {
             }
             Instruction::Bool { dest, value } => write!(fmt, "{} = {}", dest, value),
             Instruction::String { dest, value } => write!(fmt, "{} = string \"{}\"", dest, value),
+            Instruction::Unit { dest } => write!(fmt, "{} = unit", dest),
             Instruction::Goto(loc) => write!(fmt, "goto {}", loc),
             Instruction::If { cond, t, f } => {
                 write!(fmt, "if {} then goto {} else goto {}", cond, t, f)
@@ -310,7 +318,7 @@ impl<'a> TIR<'a> {
                     let mut iter = parameters.iter().peekable();
                     while let Some(param) = iter.next() {
                         print!("{}: {}", param.0, self.ctx.display(param.1));
-                        if !iter.peek().is_some() {
+                        if iter.peek().is_some() {
                             print!(", ");
                         }
                     }

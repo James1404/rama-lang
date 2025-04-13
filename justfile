@@ -4,7 +4,10 @@ build:
 run *ARGS='':
     @cargo run -- {{ARGS}}
 
-tests: (run "test")
+tests: (run "--print-ast test")
+
+dbg:
+    rust-gdb target/debug/rama-lang
 
 commit MSG:
     @git add .

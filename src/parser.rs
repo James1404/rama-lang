@@ -1,5 +1,7 @@
 use std::result;
 
+use itertools::Itertools;
+
 use crate::{
     ast::{self, AST, Literal, LiteralStructField, Node, Param, Ref},
     lexer::{Token, TokenType, precedence},
@@ -78,9 +80,22 @@ impl<'a> Cursor<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ParserError<'a> {
-    pub msg: String,
-    pub token: Token<'a>,
+pub enum ParserError<'a> {
+    Many(Vec<ParserError<'a>>),
+    Msg { msg: String, token: Token<'a> },
+}
+
+impl<'a> ParserError<'a> {
+    pub fn error(&self) {
+        use log::error;
+
+        match self {
+            ParserError::Many(errs) => errs.iter().for_each(|err| err.error()),
+            ParserError::Msg { msg, token } => {
+                error!("[{}; {}] {}", token.pos.line, token.pos.offset, msg);
+            }
+        }
+    }
 }
 
 pub type Result<'a, T> = result::Result<T, ParserError<'a>>;
@@ -123,7 +138,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                     Ok(ident)
                 }
             }
-            _ => Err(ParserError {
+            _ => Err(ParserError::Msg {
                 msg: "Unable to parse identifier".to_owned(),
                 token,
             }),
@@ -197,7 +212,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 if self.cursor.advance_if(TokenType::RParen) {
                     Ok(expr)
                 } else {
-                    Err(ParserError {
+                    Err(ParserError::Msg {
                         msg: "Parenthesis requires closing brace".to_owned(),
                         token,
                     })
@@ -211,7 +226,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
                 while !self.cursor.matches(TokenType::RBrace) {
                     if self.cursor.eof() {
-                        return Err(ParserError {
+                        return Err(ParserError::Msg {
                             msg: "Struct initialization requires a closing brace".to_owned(),
                             token,
                         });
@@ -220,7 +235,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                     let ident = self.parse_ident()?;
 
                     if !self.cursor.advance_if(TokenType::Colon) {
-                        return Err(ParserError {
+                        return Err(ParserError::Msg {
                             msg: "Struct field requires a type".to_owned(),
                             token,
                         });
@@ -238,15 +253,17 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 if self.cursor.advance_if(TokenType::RBrace) {
                     Ok(self.alloc(Node::Literal(Literal::Struct { fields })))
                 } else {
-                    Err(ParserError {
+                    Err(ParserError::Msg {
                         msg: "Struct initializer requires a closing brace".to_owned(),
                         token,
                     })
                 }
             }
 
+            TokenType::LBrace => self.parse_block(),
+
             _ => {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Unable to parse value".to_owned(),
                     token,
                 });
@@ -262,7 +279,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 }
 
                 if self.cursor.eof() {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "".to_owned(),
                         token,
                     });
@@ -277,7 +294,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
 
             if !self.cursor.advance_if(TokenType::RParen) {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Type constructor requires a closing parenthesis".to_owned(),
                     token,
                 });
@@ -306,7 +323,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
 
             if !self.cursor.advance_if(TokenType::LBrace) {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Enum decleration requires a body".to_owned(),
                     token,
                 });
@@ -316,7 +333,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
             while !self.cursor.advance_if(TokenType::RBrace) {
                 if self.cursor.eof() {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Enum body requires a closing brace".to_owned(),
                         token,
                     });
@@ -333,7 +350,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 variants.push(ast::EnumVariant { ident, ty });
 
                 if !self.cursor.advance_if(TokenType::Semicolon) {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Enum variant must end with a semicolon".to_owned(),
                         token,
                     });
@@ -343,7 +360,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             return Ok(self.alloc(Node::EnumType(variants)));
         }
 
-        Err(ParserError {
+        Err(ParserError::Msg {
             msg: "Failed to parse enum".to_owned(),
             token,
         })
@@ -358,7 +375,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
 
             if !self.cursor.advance_if(TokenType::LBrace) {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Struct decleration requires a body".to_owned(),
                     token,
                 });
@@ -368,7 +385,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
             while !self.cursor.advance_if(TokenType::RBrace) {
                 if self.cursor.eof() {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Struct body requires a closing brace".to_owned(),
                         token,
                     });
@@ -377,7 +394,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 let ident = self.parse_ident()?;
 
                 if !self.cursor.advance_if(TokenType::Colon) {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Struct field requires a type".to_owned(),
                         token,
                     });
@@ -388,7 +405,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 fields.push(ast::StructField { ident, ty });
 
                 if !self.cursor.advance_if(TokenType::Semicolon) {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Struct field must end with a semicolon".to_owned(),
                         token,
                     });
@@ -398,7 +415,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             return Ok(self.alloc(Node::StructType(fields)));
         }
 
-        Err(ParserError {
+        Err(ParserError::Msg {
             msg: "Failed to parse struct".to_owned(),
             token,
         })
@@ -444,7 +461,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 self.alloc(node)
             }
             _ => {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Invalid type".to_owned(),
                     token,
                 });
@@ -460,7 +477,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 }
 
                 if self.cursor.eof() {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "".to_owned(),
                         token,
                     });
@@ -475,7 +492,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
 
             if !self.cursor.advance_if(TokenType::RParen) {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Type constructor requires a closing parenthesis".to_owned(),
                     token,
                 });
@@ -505,7 +522,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 return if self.cursor.advance_if(TokenType::Semicolon) {
                     Ok(self.alloc(Node::ConstDecl { ident, ty, value }))
                 } else {
-                    Err(ParserError {
+                    Err(ParserError::Msg {
                         msg: "Expected semicolon after const statement".to_owned(),
                         token,
                     })
@@ -513,7 +530,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
         }
 
-        Err(ParserError {
+        Err(ParserError::Msg {
             msg: "Failed to parse const statement".to_owned(),
             token,
         })
@@ -537,7 +554,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 return if self.cursor.advance_if(TokenType::Semicolon) {
                     Ok(self.alloc(Node::VarDecl { ident, ty, value }))
                 } else {
-                    Err(ParserError {
+                    Err(ParserError::Msg {
                         msg: "Expected semicolon after var statement".to_owned(),
                         token,
                     })
@@ -545,7 +562,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
         }
 
-        Err(ParserError {
+        Err(ParserError::Msg {
             msg: "Failed to parse var statement".to_owned(),
             token,
         })
@@ -556,7 +573,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
         match token.ty {
             TokenType::Ident => self.parse_ident(),
-            _ => Err(ParserError {
+            _ => Err(ParserError::Msg {
                 msg: "Invalid generic".to_owned(),
                 token,
             }),
@@ -574,7 +591,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             if self.cursor.advance_if(TokenType::LParen) {
                 while !self.cursor.advance_if(TokenType::RParen) {
                     if self.cursor.eof() {
-                        return Err(ParserError {
+                        return Err(ParserError::Msg {
                             msg: "Type paramaters require a closing brace".to_owned(),
                             token,
                         });
@@ -585,7 +602,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
 
             if !self.cursor.advance_if(TokenType::Equal) {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Type definition requires an actual tyoe".to_owned(),
                     token,
                 });
@@ -596,14 +613,14 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             return if self.cursor.advance_if(TokenType::Semicolon) {
                 Ok(self.alloc(Node::Type { ident, args, body }))
             } else {
-                Err(ParserError {
+                Err(ParserError::Msg {
                     msg: "Expected semicolon after type statement".to_owned(),
                     token,
                 })
             };
         }
 
-        Err(ParserError {
+        Err(ParserError::Msg {
             msg: "failed to parse type statement".to_owned(),
             token,
         })
@@ -620,7 +637,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             let ident = self.parse_ident()?;
 
             if !self.cursor.advance_if(TokenType::LBrace) {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Interface requires body".to_owned(),
                     token,
                 });
@@ -630,7 +647,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
             while !self.cursor.advance_if(TokenType::RBrace) {
                 if self.cursor.eof() {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Interface body requires closing brace".to_owned(),
                         token,
                     });
@@ -639,7 +656,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 let ident = self.parse_ident()?;
 
                 if !self.cursor.advance_if(TokenType::Colon) {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Struct field requires a type".to_owned(),
                         token,
                     });
@@ -650,7 +667,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 fields.push(ast::StructField { ident, ty });
 
                 if !self.cursor.advance_if(TokenType::Semicolon) {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Struct field must end with a semicolon".to_owned(),
                         token,
                     });
@@ -660,93 +677,110 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             return Ok(self.alloc(Node::Interface { ident, fields }));
         }
 
-        Err(ParserError {
+        Err(ParserError::Msg {
             msg: "failed to parse interface".to_owned(),
             token,
         })
     }
 
-    fn parse_stmt(&mut self) -> Result<'tokens, Ref> {
-        let token = self.cursor.current();
-
-        match token.ty {
-            TokenType::Const => self.parse_const(),
-            TokenType::Var => self.parse_var(),
-            TokenType::Return => {
-                self.cursor.advance();
-
-                if self.cursor.advance_if(TokenType::Semicolon) {
-                    Ok(self.alloc(Node::ReturnNone))
-                } else {
-                    let expr = self.parse_expr()?;
-                    if self.cursor.advance_if(TokenType::Semicolon) {
-                        Ok(self.alloc(Node::Return(expr)))
-                    } else {
-                        Err(ParserError {
-                            msg: "Expected semicolon after return statement".to_owned(),
-                            token,
-                        })
-                    }
-                }
-            }
-            TokenType::Defer => {
-                self.cursor.advance();
-                let expr = self.parse_expr()?;
-                Ok(self.alloc(Node::Defer(expr)))
-            }
-            TokenType::Import => self.parse_import(),
-            TokenType::Type => self.parse_type_stmt(),
-            TokenType::Interface => self.parse_interface(),
-            TokenType::Fn => self.parse_fn_stmt(),
-            TokenType::If => self.parse_if(),
-            _ => {
-                let expr = self.parse_expr()?;
-
-                let expr = if self.cursor.advance_if(TokenType::Equal) {
-                    let value = self.parse_expr()?;
-
-                    self.alloc(Node::Assignment { ident: expr, value })
-                } else {
-                    expr
-                };
-
-                if self.cursor.advance_if(TokenType::Semicolon) {
-                    Ok(expr)
-                } else {
-                    Err(ParserError {
-                        msg: "Expect semicolon after expression".to_owned(),
-                        token,
-                    })
-                }
-            }
-        }
-    }
-
-    fn parse_scope(&mut self) -> Result<'tokens, Ref> {
+    fn parse_block(&mut self) -> Result<'tokens, Ref> {
         let token = self.cursor.current();
 
         if !self.cursor.advance_if(TokenType::LBrace) {
-            return Err(ParserError {
+            return Err(ParserError::Msg {
                 msg: "Block needs opening brace".to_owned(),
                 token,
             });
         }
 
-        let mut list = Vec::<Ref>::new();
+        let mut stmts = Vec::<Result<Ref>>::new();
+        let mut result = Option::<Ref>::None;
 
         while !self.cursor.matches(TokenType::RBrace) {
-            let stmt = self.parse_stmt()?;
-            list.push(stmt);
+            let token = self.cursor.current();
+
+            match token.ty {
+                TokenType::Const => {
+                    stmts.push(self.parse_const());
+                }
+                TokenType::Var => {
+                    stmts.push(self.parse_var());
+                }
+                TokenType::Return => {
+                    self.cursor.advance();
+
+                    if self.cursor.advance_if(TokenType::Semicolon) {
+                        stmts.push(Ok(self.alloc(Node::ReturnNone)));
+                    } else {
+                        let expr = self.parse_expr()?;
+                        if self.cursor.advance_if(TokenType::Semicolon) {
+                            stmts.push(Ok(self.alloc(Node::Return(expr))));
+                        } else {
+                            stmts.push(Err(ParserError::Msg {
+                                msg: "Expected semicolon after return statement".to_owned(),
+                                token,
+                            }));
+                        }
+                    }
+                }
+                TokenType::Defer => {
+                    self.cursor.advance();
+                    let expr = self.parse_expr()?;
+                    stmts.push(Ok(self.alloc(Node::Defer(expr))));
+                }
+                TokenType::Import => {
+                    stmts.push(self.parse_import());
+                }
+                TokenType::Type => {
+                    stmts.push(self.parse_type_stmt());
+                }
+                TokenType::Interface => {
+                    stmts.push(self.parse_interface());
+                }
+                TokenType::Fn => {
+                    stmts.push(self.parse_fn_stmt());
+                }
+                _ => {
+                    let expr = self.parse_expr()?;
+
+                    let expr = if self.cursor.advance_if(TokenType::Equal) {
+                        let value = self.parse_expr()?;
+                        self.alloc(Node::Assignment { ident: expr, value })
+                    } else {
+                        expr
+                    };
+
+                    if self.cursor.advance_if(TokenType::Semicolon) {
+                        stmts.push(Ok(expr));
+                    } else {
+                        result = Some(expr);
+                        break;
+                    }
+                }
+            }
         }
 
         if !self.cursor.advance_if(TokenType::RBrace) {
-            return Err(ParserError {
+            return Err(ParserError::Msg {
                 msg: "Expect closing brace at end of statement".to_owned(),
                 token,
             });
         }
 
-        Ok(self.alloc(Node::Scope(list)))
+        let mut errors = vec![];
+        let stmts = stmts
+            .into_iter()
+            .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
+            .collect_vec();
+
+        if errors.is_empty() {
+            Ok(self.alloc(Node::Block {
+                stmts,
+                result,
+            }))
+        } else {
+            Err(ParserError::Many(errors))
+        }
     }
 
     fn parse_fn_stmt(&mut self) -> Result<'tokens, Ref> {
@@ -756,7 +790,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             let ident = self.parse_ident()?;
 
             if !self.cursor.advance_if(TokenType::LParen) {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Function definition requires arguments list".to_owned(),
                     token,
                 });
@@ -769,7 +803,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                     break;
                 }
                 if self.cursor.eof() {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Function paramater list requires closing brace".to_owned(),
                         token,
                     });
@@ -778,7 +812,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 let ident = self.parse_ident()?;
 
                 if !self.cursor.advance_if(TokenType::Colon) {
-                    return Err(ParserError {
+                    return Err(ParserError::Msg {
                         msg: "Argument needs a type with ':'".to_owned(),
                         token,
                     });
@@ -793,7 +827,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
 
             if !self.cursor.advance_if(TokenType::RParen) {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Fn paramaters requires a closing parenthesis".to_owned(),
                     token,
                 });
@@ -802,13 +836,13 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             let ret = self.parse_type_expr()?;
 
             if !self.cursor.matches(TokenType::LBrace) {
-                return Err(ParserError {
+                return Err(ParserError::Msg {
                     msg: "Function decleration requires a code block".to_owned(),
                     token,
                 });
             }
 
-            let block = self.parse_scope()?;
+            let block = self.parse_block()?;
 
             return Ok(self.alloc(Node::FnDecl {
                 ident,
@@ -818,7 +852,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }));
         }
 
-        Err(ParserError {
+        Err(ParserError::Msg {
             msg: "Failed to parse fn statement".to_owned(),
             token,
         })
@@ -831,14 +865,14 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             let current = self.cursor.current();
             return match current.ty {
                 TokenType::String => Ok(self.advance_alloc(Node::Import(current.text))),
-                _ => Err(ParserError {
+                _ => Err(ParserError::Msg {
                     msg: "Import expects a path".to_owned(),
                     token,
                 }),
             };
         }
 
-        Err(ParserError {
+        Err(ParserError::Msg {
             msg: "Unable to parse import statement".to_owned(),
             token,
         })
@@ -853,18 +887,18 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
 
             let cond = self.parse_expr()?;
-            let t = self.parse_scope()?;
+            let t = self.parse_block()?;
 
             if !self.cursor.advance_if(TokenType::Else) {
                 break 'outer;
             }
 
-            let f = self.parse_scope()?;
+            let f = self.parse_block()?;
 
             return Ok(self.alloc(Node::If { cond, t, f }));
         }
 
-        return Err(ParserError {
+        return Err(ParserError::Msg {
             msg: "Failed to parse if statement".to_owned(),
             token,
         });
@@ -880,7 +914,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             TokenType::Type => self.parse_type_stmt(),
             TokenType::Interface => self.parse_interface(),
             TokenType::Fn => self.parse_fn_stmt(),
-            _ => Err(ParserError {
+            _ => Err(ParserError::Msg {
                 msg: "Invalid toplevel statement".to_owned(),
                 token,
             }),

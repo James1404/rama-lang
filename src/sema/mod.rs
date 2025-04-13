@@ -50,6 +50,7 @@ impl<'ast> Sema<'ast> {
 
     fn subtype(&self, lhs: TypeID, rhs: TypeID) -> bool {
         match (self.ctx.get(lhs), self.ctx.get(rhs)) {
+            (Type::Unit, _) => true, // check this is right
             (Type::Int { .. }, Type::Int { .. }) => true,
             (Type::Float(_), Type::Float(_)) => true,
             (Type::Bool, Type::Bool) => true,
@@ -270,15 +271,28 @@ impl<'ast> Sema<'ast> {
                     Err(SemaError::Err("".to_owned()))
                 }
             }
+            Node::Block { stmts, result } => {
+                for stmt in stmts {
+                    self.eval(stmt)?;
+                }
+
+                if let Some(result) = result {
+                    let ty = self.infer(result)?;
+                    Ok(ty)
+                }
+                else {
+                    Ok(self.ctx.alloc(Type::Unit))
+                }
+            }
 
             Node::If { cond, t, f } => {
                 let b = self.ctx.alloc(Type::Bool);
                 self.check(cond, b)?;
 
-                let t1 = self.infer(t)?;
-                self.check(f, t1)?;
+                let ty = self.infer(t)?;
+                self.check(f, ty)?;
 
-                Ok(t1)
+                Ok(ty)
             }
 
             Node::Dereference(term) => {
@@ -466,11 +480,6 @@ impl<'ast> Sema<'ast> {
                 self.metadata.set(node, ty);
             }
 
-            Node::Scope(lst) => {
-                for node in lst {
-                    self.eval(node)?;
-                }
-            }
             Node::Assignment { ident, value } => {
                 let ty = self.infer(ident)?;
                 self.check(value, ty)?;
@@ -491,15 +500,6 @@ impl<'ast> Sema<'ast> {
                     None => return Err(SemaError::FunctionDoesNotHaveReturnType),
                 }
             }
-
-            Node::If { cond, t, f } => {
-                let b = self.ctx.alloc(Type::Bool);
-                self.check(cond, b)?;
-
-                self.eval(t)?;
-                self.eval(f)?;
-            }
-
             _ => {
                 self.infer(node)?;
             }

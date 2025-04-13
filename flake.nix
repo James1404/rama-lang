@@ -22,12 +22,15 @@
               lldb
               gdb
 
-              rust-bin.stable.latest.default
-              rust-analyzer
+              (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
+                extensions = [ "rust-analyzer" ];
+              }))
 
               llvmPackages_20.libllvm
 
               libxml2
+
+              cargo-udeps
             ];
 
             RUST_BACKTRACE = "1";

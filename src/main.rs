@@ -5,7 +5,6 @@ extern crate derive_more;
 
 use clap_complete::{Generator, Shell, generate};
 use lexer::Lexer;
-use log::error;
 use metadata::Metadata;
 use parser::Parser;
 
@@ -73,10 +72,7 @@ where
     let ast = match parser.run() {
         Ok(ast) => ast,
         Err(err) => {
-            error!(
-                "[{}; {}] {}",
-                err.token.pos.line, err.token.pos.offset, err.msg
-            );
+            err.error();
             return Ok(());
         }
     };
@@ -91,7 +87,9 @@ where
 
     for error in &errors {
         match error {
-            SemaError::InvalidTerm(term) => println!("Error: [InvalidTerm] {:#?}", astview.get(*term)),
+            SemaError::InvalidTerm(term) => {
+                println!("Error: [InvalidTerm] {:#?}", astview.get(*term))
+            }
             SemaError::Err(msg) => println!("Error: {}", msg),
             _ => println!("Error: {}", error),
         }
