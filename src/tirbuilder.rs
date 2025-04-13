@@ -164,24 +164,21 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 None => panic!(),
             },
             Node::FieldAccess(value, field) => {
-                let ty = self.tast.get_type_id(field);
-
                 let field = self.tast.get_ident(field);
-                let field = match self.tast.get_ty(value) {
+                let (idx, field) = match self.tast.get_ty(value) {
                     Type::ADT(ADT { fields, .. }) => {
-                        fields.iter().position(|f| f.ident == field).unwrap()
+                        fields.into_iter().find_position(|f| f.ident == field).unwrap()
                     }
                     _ => panic!(),
                 };
-
                 let value = self.eval_expr(value);
 
                 let dest = self.reg();
                 self.append(Instruction::ReadField {
                     dest,
                     r#struct: value,
-                    field,
-                    ty,
+                    field: idx,
+                    ty: field.ty.unwrap(),
                 });
 
                 dest

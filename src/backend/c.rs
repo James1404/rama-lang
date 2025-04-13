@@ -1,11 +1,9 @@
-use itertools::Itertools;
-use typed_index_collections::{TiVec, ti_vec};
-
 use crate::{
     metadata::Metadata,
     tir::{CFG, CmpKind, Instruction, Loc, Ref, TIR},
     types::{FloatKind, IntSize, Type, TypeID},
 };
+use core::fmt;
 use std::{fmt::Write, io, path::Path};
 
 struct CodeBuilder<'a> {
@@ -40,62 +38,78 @@ impl<'a> CodeBuilder<'a> {
     fn convert_type(&self, ty: TypeID) -> String {
         match self.tir.ctx.get(ty) {
             Type::Void => "void".to_owned(),
-            Type::Unit => "int8_t".to_owned(),
+            Type::Unit => "i32".to_owned(),
             Type::Bool => "bool".to_owned(),
             Type::Int { size, signed } => match (signed, size) {
-                (true, IntSize::Bits8) => "int8_t".to_owned(),
-                (true, IntSize::Bits16) => "int16_t".to_owned(),
-                (true, IntSize::Bits32) => "int32_t".to_owned(),
-                (true, IntSize::Bits64) => "int64_t".to_owned(),
-                (true, IntSize::BitsPtr) => "intptr_t".to_owned(),
-                (false, IntSize::Bits8) => "uint8_t".to_owned(),
-                (false, IntSize::Bits16) => "uint16_t".to_owned(),
-                (false, IntSize::Bits32) => "uint32_t".to_owned(),
-                (false, IntSize::Bits64) => "uint64_t".to_owned(),
-                (false, IntSize::BitsPtr) => "uintptr_t".to_owned(),
+                (true, IntSize::Bits8) => "i8".to_owned(),
+                (true, IntSize::Bits16) => "i16".to_owned(),
+                (true, IntSize::Bits32) => "i32".to_owned(),
+                (true, IntSize::Bits64) => "i64".to_owned(),
+                (true, IntSize::BitsPtr) => "isize".to_owned(),
+                (false, IntSize::Bits8) => "u8".to_owned(),
+                (false, IntSize::Bits16) => "u16".to_owned(),
+                (false, IntSize::Bits32) => "u32".to_owned(),
+                (false, IntSize::Bits64) => "u64".to_owned(),
+                (false, IntSize::BitsPtr) => "usize".to_owned(),
             },
-            Type::Float(FloatKind::F32) => "float".to_owned(),
-            Type::Float(FloatKind::F64) => "long double".to_owned(),
+            Type::Float(FloatKind::F32) => "f32".to_owned(),
+            Type::Float(FloatKind::F64) => "f64".to_owned(),
             Type::Ptr(inner) => format!("{}*", self.convert_type(inner)),
-            _ => panic!(),
+            _ => panic!("{}", self.tir.ctx.display(ty)),
         }
     }
 
-    fn import_std(&mut self, file: &str) {
-        writeln!(self.code, "#import <{}>", file).unwrap()
+    fn include_file(&mut self, file: &str) -> fmt::Result {
+        writeln!(self.code, "#include \"{}\"", file)
     }
 
-    fn eval_instruction(&mut self, inst: &Instruction<'a>) -> std::fmt::Result {
+    fn include_std(&mut self, file: &str) -> fmt::Result {
+        writeln!(self.code, "#include <{}>", file)
+    }
+
+    fn define(&mut self, name: &str, value: &str) -> fmt::Result {
+        writeln!(self.code, "#define {} {}", name, value)
+    }
+
+    fn typedef(&mut self, name: &str, ty: &str) -> fmt::Result {
+        writeln!(self.code, "typedef {} {};", ty, name)
+    }
+
+    fn eval_instruction(&mut self, inst: &Instruction<'a>) -> fmt::Result {
         match inst {
             Instruction::Nop => panic!(),
 
             Instruction::Add { dest, lhs, rhs } => {
+                let dest = Self::reg(*dest);
                 let lhs = Self::reg(*lhs);
                 let rhs = Self::reg(*rhs);
                 let ty = "TODO";
 
-                writeln!(self.code, "{ty} {dest} = {lhs} + {rhs}")
+                writeln!(self.code, "{ty} {dest} = {lhs} + {rhs};")
             }
             Instruction::Sub { dest, lhs, rhs } => {
+                let dest = Self::reg(*dest);
                 let lhs = Self::reg(*lhs);
                 let rhs = Self::reg(*rhs);
                 let ty = "TODO";
 
-                writeln!(self.code, "{ty} {dest} = {lhs} - {rhs}")
+                writeln!(self.code, "{ty} {dest} = {lhs} - {rhs};")
             }
             Instruction::Mul { dest, lhs, rhs } => {
+                let dest = Self::reg(*dest);
                 let lhs = Self::reg(*lhs);
                 let rhs = Self::reg(*rhs);
                 let ty = "TODO";
 
-                writeln!(self.code, "{ty} {dest} = {lhs} * {rhs}")
+                writeln!(self.code, "{ty} {dest} = {lhs} * {rhs};")
             }
             Instruction::Div { dest, lhs, rhs } => {
+                let dest = Self::reg(*dest);
                 let lhs = Self::reg(*lhs);
                 let rhs = Self::reg(*rhs);
                 let ty = "TODO";
 
-                writeln!(self.code, "{ty} {dest} = {lhs} / {rhs}")
+                writeln!(self.code, "{ty} {dest} = {lhs} / {rhs};")
             }
 
             Instruction::Cmp {
@@ -117,7 +131,7 @@ impl<'a> CodeBuilder<'a> {
                     CmpKind::GreaterEqual => ">=",
                 };
 
-                writeln!(self.code, "bool {} = {l} {cmp} {r};", Self::reg(*dest),)
+                writeln!(self.code, "bool {} = {l} {cmp} {r};", Self::reg(*dest))
             }
             Instruction::Negate { dest, value } => todo!(),
             Instruction::Not { .. } => todo!(),
@@ -153,13 +167,23 @@ impl<'a> CodeBuilder<'a> {
                     Self::reg(*value)
                 )
             }
-            Instruction::MakeStruct { dest, ty } => todo!(),
+            Instruction::MakeStruct { dest, ty } => {
+                let ty = self.convert_type(*ty);
+                writeln!(self.code, "{ty} {};", Self::reg(*dest))
+            }
             Instruction::WriteField {
                 r#struct,
                 field,
                 value,
-                ty,
-            } => todo!(),
+                ty: _,
+            } => writeln!(
+                self.code,
+                "{}.{} = {};",
+                Self::reg(*r#struct),
+                Self::field(*field),
+                Self::reg(*value)
+            ),
+
             Instruction::ReadField {
                 dest,
                 r#struct,
@@ -226,7 +250,7 @@ impl<'a> CodeBuilder<'a> {
             }
 
             Instruction::Unit { dest } => {
-                writeln!(self.code, "int8_t {} = 0", Self::reg(*dest))
+                writeln!(self.code, "i32 {} = 0;", Self::reg(*dest))
             }
 
             Instruction::Goto(loc) => writeln!(self.code, "goto {};", Self::loc(*loc)),
@@ -243,9 +267,14 @@ impl<'a> CodeBuilder<'a> {
         }
     }
 
-    fn eval_cfg(&mut self, cfg: CFG<'a>) -> std::fmt::Result {
+    fn newline(&mut self) -> fmt::Result {
+        writeln!(self.code, "")
+    }
+
+    fn eval_cfg(&mut self, cfg: CFG<'a>) -> fmt::Result {
         for (loc, bb) in cfg.blocks.iter_enumerated() {
             writeln!(self.code, "{}:", Self::loc(loc))?;
+            writeln!(self.code, "\t{{}}")?;
 
             for inst in &bb.instructions {
                 write!(self.code, "\t")?;
@@ -256,12 +285,42 @@ impl<'a> CodeBuilder<'a> {
         Ok(())
     }
 
-    fn build(mut self) -> String {
-        self.import_std("assert.h");
-        self.import_std("stdio.h");
-        self.import_std("stdlib.h");
-        self.import_std("stdbool.h");
-        self.import_std("string.h");
+    fn build(mut self) -> Result<String, fmt::Error> {
+        self.include_std("assert.h")?;
+        self.include_std("stdio.h")?;
+        self.include_std("stdlib.h")?;
+        self.include_std("stdbool.h")?;
+        self.include_std("stdint.h")?;
+        self.include_std("string.h")?;
+
+        self.typedef("f32", "float")?;
+        self.typedef("f64", "long double")?;
+
+        self.newline()?;
+
+        self.typedef("u8", "unsigned char")?;
+        self.typedef("u16", "unsigned short int")?;
+        self.typedef("u32", "unsigned long int")?;
+        self.typedef("u64", "unsigned long long int")?;
+        self.typedef("usize", "unsigned long long int")?;
+
+        self.newline()?;
+
+        self.typedef("i8", "char")?;
+        self.typedef("i16", "short int")?;
+        self.typedef("i32", "long int")?;
+        self.typedef("i64", "long long int")?;
+        self.typedef("isize", "long long int")?;
+
+        self.newline()?;
+
+        self.define("TODO", "i32")?;
+
+        self.newline()?;
+
+        //
+        // forward declerations
+        //
 
         for func in self.tir.func_iter() {
             let ty = match self.tir.ctx.get(func.ty) {
@@ -269,7 +328,7 @@ impl<'a> CodeBuilder<'a> {
                 _ => panic!(),
             };
             let return_ty = self.convert_type(ty.return_ty);
-            write!(self.code, "{} {}(", return_ty, func.name).unwrap();
+            write!(self.code, "{} {}(", return_ty, func.name)?;
 
             let mut iter = ty.parameters.iter().enumerate().peekable();
             while let Some((idx, param)) = iter.next() {
@@ -278,16 +337,17 @@ impl<'a> CodeBuilder<'a> {
                     "{} {}",
                     Self::arg(idx),
                     self.convert_type(param.1)
-                )
-                .unwrap();
+                )?;
 
                 if iter.peek().is_some() {
-                    write!(self.code, ", ").unwrap();
+                    write!(self.code, ", ")?;
                 }
             }
 
-            writeln!(self.code, ");").unwrap();
+            writeln!(self.code, ");")?;
         }
+
+        self.newline()?;
 
         for func in self.tir.clone().func_iter() {
             let ty = match self.tir.ctx.get(func.ty) {
@@ -295,7 +355,7 @@ impl<'a> CodeBuilder<'a> {
                 _ => panic!(),
             };
             let return_ty = self.convert_type(ty.return_ty);
-            write!(self.code, "{} {}(", return_ty, func.name).unwrap();
+            write!(self.code, "{} {}(", return_ty, func.name)?;
 
             let mut iter = ty.parameters.iter().enumerate().peekable();
             while let Some((idx, param)) = iter.next() {
@@ -304,30 +364,29 @@ impl<'a> CodeBuilder<'a> {
                     "{} {}",
                     Self::arg(idx),
                     self.convert_type(param.1)
-                )
-                .unwrap();
+                )?;
 
                 if iter.peek().is_some() {
-                    write!(self.code, ", ").unwrap();
+                    write!(self.code, ", ")?;
                 }
             }
 
-            writeln!(self.code, ") {{").unwrap();
-            self.eval_cfg(func.cfg).expect("Error");
-            writeln!(self.code, "}}").unwrap();
+            writeln!(self.code, ") {{")?;
+            self.eval_cfg(func.cfg)?;
+            writeln!(self.code, "}}")?;
         }
 
-        self.code
+        Ok(self.code)
     }
 }
 
 pub fn compile<'a>(tir: TIR<'a>, metadata: Metadata<'a>) -> io::Result<()> {
     let code = CodeBuilder::new(tir);
-    let code = code.build();
+    let code = code.build().unwrap();
 
     println!("{}", code);
 
-    let path = format!("build/{}", metadata.filename);
+    let path = format!("build/{}.c", metadata.name);
     let path = Path::new(&path);
 
     let dir = path.parent().unwrap();

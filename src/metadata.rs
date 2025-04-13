@@ -1,4 +1,6 @@
+use std::path::Path;
+
 pub struct Metadata<'a> {
-    pub filename: &'a str,
-    pub path: &'a str,
+    pub name: &'a str,
+    pub path: &'a Path,
 }

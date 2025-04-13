@@ -70,7 +70,7 @@ impl<'a> Drop for Codegen<'a> {
 
 impl<'a> Codegen<'a> {
     pub fn new(tir: TIR<'a>, metadata: Metadata<'a>) -> Self {
-        let name = CString::new(metadata.filename).unwrap();
+        let name = CString::new(format!("{}.rama", metadata.name)).unwrap();
 
         let context = unsafe { core::LLVMContextCreate() };
         let module = unsafe { core::LLVMModuleCreateWithName(name.as_ptr() as *const _) };

@@ -56,10 +56,9 @@ where
 {
     let src = std::fs::read_to_string(path.clone())?;
 
-    let fullpath = path.as_ref().to_str().unwrap();
     let metadata = Metadata {
-        filename: path.as_ref().file_name().unwrap().to_str().unwrap(),
-        path: fullpath,
+        name: path.as_ref().file_stem().unwrap().to_str().unwrap(),
+        path: path.as_ref(),
     };
 
     let lexer = Lexer::new(&src);
