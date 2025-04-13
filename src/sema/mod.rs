@@ -205,7 +205,7 @@ impl<'ast> Sema<'ast> {
                     let adt = ADT {
                         kind: ADTKind::Struct,
                         fields: adt_fields,
-                        generic_args: vec![],
+                        typevariables: vec![],
                     };
 
                     Ok(self.ctx.alloc(Type::ADT(adt)))
@@ -227,7 +227,7 @@ impl<'ast> Sema<'ast> {
                     Type::ADT(ADT {
                         kind: _,
                         fields,
-                        generic_args: _,
+                        typevariables: _,
                     }) => {
                         if let Some(Field { ident: _, ty }) =
                             fields.iter().find(|f| f.ident == ident)
@@ -370,7 +370,7 @@ impl<'ast> Sema<'ast> {
                 let adt = ADT {
                     kind: ADTKind::Struct,
                     fields: adt_fields,
-                    generic_args: vec![],
+                    typevariables: vec![],
                 };
 
                 self.ctx.alloc(Type::ADT(adt))
@@ -391,7 +391,7 @@ impl<'ast> Sema<'ast> {
                 let adt = ADT {
                     kind: ADTKind::Struct,
                     fields: adt_fields,
-                    generic_args: vec![],
+                    typevariables: vec![],
                 };
 
                 self.ctx.alloc(Type::ADT(adt))

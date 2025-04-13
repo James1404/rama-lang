@@ -109,11 +109,11 @@ where
 
     tir.pretty_print();
 
-    println!("<== Starting CodeGen ==>");
-    match backend::compile(tir, metadata, cli.backend) {
-        Ok(_) => {},
-        Err(err) => error!("{}", err),
-    }
+    // println!("<== Starting CodeGen ==>");
+    // match backend::compile(tir, metadata, cli.backend) {
+    //     Ok(_) => {},
+    //     Err(err) => error!("{}", err),
+    // }
 
     Ok(())
 }

@@ -1,5 +1,10 @@
 type string = [u8];
 
+type Vec2<T> = struct {
+     x: T,
+     y: T,
+}
+
 type person = struct { age: i32; };
 
 fn read(filename: string) i32 {

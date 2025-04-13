@@ -20,7 +20,7 @@ pub enum ADTKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum GenericArg {
+pub enum TypeVariable {
     Type(TypeID),
 }
 
@@ -28,7 +28,7 @@ pub enum GenericArg {
 pub struct ADT<'a> {
     pub kind: ADTKind,
     pub fields: Vec<Field<'a>>,
-    pub generic_args: Vec<GenericArg>,
+    pub typevariables: Vec<TypeVariable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
