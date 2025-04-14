@@ -169,7 +169,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 )?;
             }
 
-            last = self.alloc(Node::Binary { lhs: last, rhs, op });
+            last = self.alloc(Node::Binary { lhs: last, rhs, op: op.ty.into() });
         }
 
         Ok(last)
@@ -588,8 +588,8 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
             let mut args = Vec::<Ref>::new();
 
-            if self.cursor.advance_if(TokenType::Less) {
-                while !self.cursor.advance_if(TokenType::Greater) {
+            if self.cursor.advance_if(TokenType::LAngle) {
+                while !self.cursor.advance_if(TokenType::RAngle) {
                     if self.cursor.eof() {
                         return Err(ParserError::Msg {
                             msg: "Type paramaters require a closing brace".to_owned(),

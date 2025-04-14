@@ -162,18 +162,12 @@ pub enum Instruction<'a> {
     Unit {
         dest: Ref,
     },
+}
 
-    // Control flow
+#[derive(Debug, Clone, Copy)]
+pub enum Terminator {
     Goto(Loc),
-    Goto_if {
-        cond: Ref,
-        loc: Loc,
-    },
-    Goto_if_not {
-        cond: Ref,
-        loc: Loc,
-    },
-
+    If { cond: Ref, t: Loc, f: Loc },
     ReturnNone,
     Return(Ref),
 }
@@ -279,12 +273,6 @@ impl<'a> Display for InstructionFmt<'a> {
             Instruction::Bool { dest, value } => write!(fmt, "{} = {}", dest, value),
             Instruction::String { dest, value } => write!(fmt, "{} = string \"{}\"", dest, value),
             Instruction::Unit { dest } => write!(fmt, "{} = unit", dest),
-            Instruction::Goto(loc) => write!(fmt, "goto {}", loc),
-            Instruction::Goto_if { cond, loc } => write!(fmt, "goto {} if {}", loc, cond),
-            Instruction::Goto_if_not { cond, loc } => write!(fmt, "goto {} if not {}", loc, cond),
-
-            Instruction::ReturnNone => write!(fmt, "return"),
-            Instruction::Return(value) => write!(fmt, "return {}", value),
         }
     }
 }
@@ -292,6 +280,7 @@ impl<'a> Display for InstructionFmt<'a> {
 #[derive(Debug, Clone)]
 pub struct BasicBlock<'a> {
     pub instructions: Vec<Instruction<'a>>,
+    pub terminator: Option<Terminator>,
 }
 
 #[derive(Debug, Clone)]
@@ -366,6 +355,15 @@ impl<'a> TIR<'a> {
 
                 for inst in &bb.instructions {
                     println!("\t{}", inst.display(self));
+                }
+
+                match bb.terminator.unwrap() {
+                    Terminator::Goto(loc) => println!("goto {loc}"),
+                    Terminator::If { cond, t, f } => {
+                        println!("if {cond} then goto {t} else goto {f}")
+                    }
+                    Terminator::ReturnNone => println!("return"),
+                    Terminator::Return(value) => println!("return {value}"),
                 }
             }
 

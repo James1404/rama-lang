@@ -4,8 +4,7 @@ use itertools::Itertools;
 use typed_index_collections::{TiVec, ti_vec};
 
 use crate::{
-    ast::{self, Literal, Node},
-    lexer::TokenType,
+    ast::{self, BinaryOp, Literal, Node},
     tir::{BasicBlock, CFG, CmpKind, Func, FuncRef, Instruction, Loc, Ref, TIR, TypeDef, TypeRef},
     typed_ast::TypedAST,
     types::{ADT, FnType, Type, TypeID},
@@ -55,48 +54,48 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 let dest = self.reg();
                 let ty = self.tast.get_type_id(node);
 
-                match op.ty {
-                    TokenType::Plus => self.append(Instruction::Add { dest, lhs, rhs, ty }),
-                    TokenType::Minus => self.append(Instruction::Sub { dest, lhs, rhs, ty }),
-                    TokenType::Asterix => self.append(Instruction::Mul { dest, lhs, rhs, ty }),
-                    TokenType::Slash => self.append(Instruction::Div { dest, lhs, rhs, ty }),
+                match op {
+                    BinaryOp::Add => self.append(Instruction::Add { dest, lhs, rhs, ty }),
+                    BinaryOp::Sub => self.append(Instruction::Sub { dest, lhs, rhs, ty }),
+                    BinaryOp::Mul => self.append(Instruction::Mul { dest, lhs, rhs, ty }),
+                    BinaryOp::Div => self.append(Instruction::Div { dest, lhs, rhs, ty }),
 
-                    TokenType::EqualEqual => self.append(Instruction::Cmp {
+                    BinaryOp::Eq => self.append(Instruction::Cmp {
                         dest,
                         lhs,
                         rhs,
                         kind: CmpKind::Equal,
                         ty: self.tast.get_type_id(l),
                     }),
-                    TokenType::NotEqual => self.append(Instruction::Cmp {
+                    BinaryOp::NotEq => self.append(Instruction::Cmp {
                         dest,
                         lhs,
                         rhs,
                         kind: CmpKind::NotEqual,
                         ty: self.tast.get_type_id(l),
                     }),
-                    TokenType::Less => self.append(Instruction::Cmp {
+                    BinaryOp::Less => self.append(Instruction::Cmp {
                         dest,
                         lhs,
                         rhs,
                         kind: CmpKind::LessThan,
                         ty: self.tast.get_type_id(l),
                     }),
-                    TokenType::LessEq => self.append(Instruction::Cmp {
+                    BinaryOp::LessEq => self.append(Instruction::Cmp {
                         dest,
                         lhs,
                         rhs,
                         kind: CmpKind::LessEqual,
                         ty: self.tast.get_type_id(l),
                     }),
-                    TokenType::Greater => self.append(Instruction::Cmp {
+                    BinaryOp::Greater => self.append(Instruction::Cmp {
                         dest,
                         lhs,
                         rhs,
                         kind: CmpKind::GreaterThan,
                         ty: self.tast.get_type_id(l),
                     }),
-                    TokenType::GreaterEq => self.append(Instruction::Cmp {
+                    BinaryOp::GreaterEq => self.append(Instruction::Cmp {
                         dest,
                         lhs,
                         rhs,

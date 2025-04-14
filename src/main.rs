@@ -41,13 +41,16 @@ struct Cli {
     #[arg(long)]
     print_ast: bool,
 
-    #[arg(short, long, value_enum)]
+    #[arg(short, long, value_enum, default_value_t = Backend::C)]
     backend: Backend,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     Test,
+    Compile {
+        file: String,
+    },
 }
 
 fn compile<P>(path: P, cli: &Cli) -> io::Result<()>
@@ -154,6 +157,9 @@ fn main() -> io::Result<()> {
     match &cli.command {
         Some(Commands::Test) => {
             tests(&cli)?;
+        }
+        Some(Commands::Compile { file }) => {
+            compile(file, &cli)?;
         }
         None => {}
     }

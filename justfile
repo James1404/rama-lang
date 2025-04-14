@@ -4,6 +4,8 @@ build:
 run *ARGS='':
     @cargo run -- {{ARGS}}
 
+compile file: (run "--print-ast compile" file)
+
 tests: (run "--print-ast --backend c test")
 
 dbg:

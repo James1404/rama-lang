@@ -4,10 +4,10 @@ pub mod error;
 mod frame;
 
 use crate::{
-    ast::{ASTView, Literal, Node, Ref},
+    ast::{ASTView, BinaryOp, Literal, Node, Ref},
     lexer::TokenType,
     typed_ast::{TypeMetadata, TypedAST},
-    types::{ADT, ADTKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID},
+    types::{ADTKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID, ADT},
     valuescope::ScopeArena,
 };
 
@@ -153,18 +153,20 @@ impl<'ast> Sema<'ast> {
 
     fn infer(&mut self, term: Ref) -> Result<'ast, TypeID> {
         let ty = match self.ast.get(term) {
-            Node::Binary { lhs, rhs, op } => match op.ty {
-                TokenType::Plus => self.add(lhs, rhs),
-                TokenType::Minus => self.sub(lhs, rhs),
-                TokenType::Asterix => self.mul(lhs, rhs),
-                TokenType::Slash => self.div(lhs, rhs),
+            Node::Binary { lhs, rhs, op } => match op {
+                BinaryOp::Invalid => panic!(),
 
-                TokenType::EqualEqual
-                | TokenType::NotEqual
-                | TokenType::Less
-                | TokenType::LessEq
-                | TokenType::Greater
-                | TokenType::GreaterEq => {
+                BinaryOp::Add => self.add(lhs, rhs),
+                BinaryOp::Sub => self.sub(lhs, rhs),
+                BinaryOp::Mul => self.mul(lhs, rhs),
+                BinaryOp::Div => self.div(lhs, rhs),
+
+                BinaryOp::Eq
+                | BinaryOp::NotEq
+                | BinaryOp::Less
+                | BinaryOp::LessEq
+                | BinaryOp::Greater
+                | BinaryOp::GreaterEq => {
                     let t1 = self.infer(lhs)?;
                     let t2 = self.infer(rhs)?;
 
@@ -178,8 +180,6 @@ impl<'ast> Sema<'ast> {
                         )))
                     }
                 }
-
-                _ => Err(SemaError::InvalidTerm(term)),
             },
             Node::Unary { value, op } => match op.ty {
                 TokenType::Plus | TokenType::MinusEq => self.infer(value),

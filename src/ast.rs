@@ -1,7 +1,7 @@
 use derive_more::Display;
 use log::error;
 
-use crate::lexer::Token;
+use crate::lexer::{Token, TokenType};
 
 #[derive(Debug, Clone, Copy, Display)]
 pub struct Ref(pub usize);
@@ -39,6 +39,44 @@ pub struct Param {
     pub ty: Ref,
 }
 
+#[derive(Debug, Clone, Copy, Display)]
+pub enum BinaryOp {
+    Invalid,
+
+    Add,
+    Sub,
+    Mul,
+    Div,
+
+    Less,
+    LessEq,
+    Greater,
+    GreaterEq,
+    Eq,
+    NotEq,
+}
+
+impl From<TokenType> for BinaryOp {
+    fn from(value: TokenType) -> Self {
+        match value {
+            TokenType::Plus => Self::Add,
+            TokenType::Minus => Self::Sub,
+            TokenType::Asterix => Self::Mul,
+            TokenType::Slash => Self::Div,
+
+            TokenType::LAngle => Self::Less,
+            TokenType::LessEq => Self::LessEq,
+            TokenType::RAngle => Self::Greater,
+            TokenType::GreaterEq => Self::GreaterEq,
+
+            TokenType::EqualEqual => Self::Eq,
+            TokenType::NotEqual => Self::NotEq,
+
+            _ => Self::Invalid,
+        }
+    }
+}
+
 #[derive(Debug, Clone, strum_macros::IntoStaticStr)]
 pub enum Node<'a> {
     None,
@@ -46,7 +84,7 @@ pub enum Node<'a> {
     Binary {
         lhs: Ref,
         rhs: Ref,
-        op: Token<'a>,
+        op: BinaryOp,
     },
     Unary {
         value: Ref,
@@ -224,7 +262,7 @@ impl<'a> ASTView<'a> {
             Node::None => {}
 
             Node::Binary { lhs, rhs, op } => {
-                out!(indentation + 1, "{}", Into::<&'static str>::into(op.ty));
+                out!(indentation + 1, "{}", op);
                 self.print(lhs, indentation + 1);
                 self.print(rhs, indentation + 1);
             }
@@ -338,8 +376,10 @@ impl<'a> ASTView<'a> {
 
             Node::Type { ident, args, body } => {
                 self.print(ident, indentation + 1);
+
+                out!(indentation + 1, "type parameters: ");
                 for node in args {
-                    self.print(node, indentation + 1);
+                    self.print(node, indentation + 2);
                 }
                 self.print(body, indentation + 1);
             }

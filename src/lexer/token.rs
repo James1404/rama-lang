@@ -28,8 +28,6 @@ pub enum TokenType {
     DivEq,
     ModEq,
 
-    Less,
-    Greater,
     LessEq,
     GreaterEq,
 
@@ -44,6 +42,9 @@ pub enum TokenType {
 
     LBracket,
     RBracket,
+
+    LAngle,
+    RAngle,
 
     StructConstructor, // .{
     LBrace,
@@ -137,9 +138,9 @@ pub fn precedence(token: Token<'_>) -> i32 {
         TokenType::Asterix => 3,
         TokenType::Slash => 4,
 
-        TokenType::Less
+        TokenType::LAngle
         | TokenType::LessEq
-        | TokenType::Greater
+        | TokenType::RAngle
         | TokenType::GreaterEq
         | TokenType::EqualEqual
         | TokenType::NotEqual => 4,
