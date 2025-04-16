@@ -4,7 +4,7 @@ pub mod error;
 mod frame;
 
 use crate::{
-    ast::{ASTView, BinaryOp, Literal, Node, Ref},
+    ast::{ASTView, BinOp, Literal, Node, Ref, UnOp},
     lexer::TokenType,
     typed_ast::{TypeMetadata, TypedAST},
     types::{ADTKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID, ADT},
@@ -154,19 +154,19 @@ impl<'ast> Sema<'ast> {
     fn infer(&mut self, term: Ref) -> Result<'ast, TypeID> {
         let ty = match self.ast.get(term) {
             Node::Binary { lhs, rhs, op } => match op {
-                BinaryOp::Invalid => panic!(),
+                BinOp::Invalid => panic!(),
 
-                BinaryOp::Add => self.add(lhs, rhs),
-                BinaryOp::Sub => self.sub(lhs, rhs),
-                BinaryOp::Mul => self.mul(lhs, rhs),
-                BinaryOp::Div => self.div(lhs, rhs),
+                BinOp::Add => self.add(lhs, rhs),
+                BinOp::Sub => self.sub(lhs, rhs),
+                BinOp::Mul => self.mul(lhs, rhs),
+                BinOp::Div => self.div(lhs, rhs),
 
-                BinaryOp::Eq
-                | BinaryOp::NotEq
-                | BinaryOp::Less
-                | BinaryOp::LessEq
-                | BinaryOp::Greater
-                | BinaryOp::GreaterEq => {
+                BinOp::Eq
+                | BinOp::NotEq
+                | BinOp::Less
+                | BinOp::LessEq
+                | BinOp::Greater
+                | BinOp::GreaterEq => {
                     let t1 = self.infer(lhs)?;
                     let t2 = self.infer(rhs)?;
 
@@ -181,8 +181,8 @@ impl<'ast> Sema<'ast> {
                     }
                 }
             },
-            Node::Unary { value, op } => match op.ty {
-                TokenType::Plus | TokenType::MinusEq => self.infer(value),
+            Node::Unary { value, op } => match op {
+                UnOp::Negate => self.infer(value),
                 _ => Err(SemaError::InvalidTerm(term)),
             },
 

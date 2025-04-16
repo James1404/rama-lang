@@ -3,25 +3,22 @@ use std::{fs, io, path::Path};
 #[macro_use]
 extern crate derive_more;
 
-use backend::Backend;
+//use backend::Backend;
 use clap_complete::{Generator, Shell, generate};
 use lexer::Lexer;
-use log::error;
 use metadata::Metadata;
 use parser::Parser;
 
 use clap::{Command, Parser as ClapParser, Subcommand};
 use sema::{Sema, SemaError};
-use tirbuilder::TIRBuilder;
 
 mod ast;
-mod backend;
+//mod backend;
 mod lexer;
 mod metadata;
 mod parser;
 mod sema;
-mod tir;
-mod tirbuilder;
+mod rair;
 mod typed_ast;
 mod types;
 mod valuescope;
@@ -41,8 +38,8 @@ struct Cli {
     #[arg(long)]
     print_ast: bool,
 
-    #[arg(short, long, value_enum, default_value_t = Backend::C)]
-    backend: Backend,
+    // #[arg(short, long, value_enum, default_value_t = Backend::C)]
+    // backend: Backend,
 }
 
 #[derive(Subcommand)]
@@ -107,10 +104,10 @@ where
 
     //tast.print();
 
-    let tirbuilder = TIRBuilder::new(tast);
-    let tir = tirbuilder.build();
+    let builder = rair::Builder::new(tast);
+    let ril = builder.build();
 
-    tir.pretty_print();
+    ril.pretty_print();
 
     // println!("<== Starting CodeGen ==>");
     // match backend::compile(tir, metadata, cli.backend) {

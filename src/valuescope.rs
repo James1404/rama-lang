@@ -51,6 +51,10 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
         self.get_from_index(self.current, key)
     }
 
+    pub fn get_unchecked(&self, key: &'a str) -> T{
+        unsafe { self.get_from_index(self.current, key).unwrap_unchecked() }
+    }
+
     pub fn push(&mut self, key: &'a str, value: T) {
         let scope = self.get_index_mut(self.current);
         scope.data.insert(key, value);

@@ -2,7 +2,7 @@ use std::ffi::CString;
 
 use crate::{
     metadata::Metadata,
-    tir::{CFG, CmpKind, FuncRef, Instruction, Loc, Ref, TIR, TypeDef},
+    rair::{CFG, FuncRef, Statement, RValue, Operand, Place, Loc, RIL, TypeDef},
     types::{ADTKind, FloatKind, FnType, IntSize, Type, TypeID},
 };
 
@@ -17,7 +17,7 @@ use llvm_sys::target_machine::{
 use typed_index_collections::{TiVec, ti_vec};
 
 struct CFGMapping {
-    data: TiVec<Ref, *mut LLVMValue>,
+    data: TiVec<Place, *mut LLVMValue>,
     args: Vec<*mut LLVMValue>,
     basic_blocks: TiVec<Loc, *mut LLVMBasicBlock>,
 }
@@ -39,7 +39,7 @@ impl CFGMapping {
         self.basic_blocks.push(bb);
     }
 
-    fn get(&mut self, value: Ref) -> *mut LLVMValue {
+    fn get(&mut self, value: Place) -> *mut LLVMValue {
         self.data[value]
     }
 
@@ -49,7 +49,7 @@ impl CFGMapping {
 }
 
 pub struct Codegen<'a> {
-    tir: TIR<'a>,
+    ril: RIL<'a>,
 
     functions_mapping: TiVec<FuncRef, *mut LLVMValue>,
 
@@ -69,7 +69,7 @@ impl<'a> Drop for Codegen<'a> {
 }
 
 impl<'a> Codegen<'a> {
-    pub fn new(tir: TIR<'a>, metadata: Metadata<'a>) -> Self {
+    pub fn new(ril: RIL<'a>, metadata: Metadata<'a>) -> Self {
         let name = CString::new(format!("{}.rama", metadata.name)).unwrap();
 
         let context = unsafe { core::LLVMContextCreate() };
@@ -77,7 +77,7 @@ impl<'a> Codegen<'a> {
         let builder = unsafe { core::LLVMCreateBuilderInContext(context) };
 
         Self {
-            tir,
+            ril,
             functions_mapping: ti_vec![],
             context,
             module,
@@ -87,7 +87,7 @@ impl<'a> Codegen<'a> {
 
     fn type_to_llvm(&self, ty: TypeID) -> *mut LLVMType {
         unsafe {
-            match self.tir.ctx.get(ty) {
+            match self.ril.ctx.get(ty) {
                 Type::Void => LLVMVoidTypeInContext(self.context),
                 Type::Unit => LLVMArrayType2(LLVMInt8TypeInContext(self.context), 0),
                 Type::Bool => LLVMInt8TypeInContext(self.context),
@@ -161,14 +161,14 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn eval_instruction(
+    fn eval_stmt(
         &mut self,
         builder: *mut LLVMBuilder,
         mapping: &mut CFGMapping,
-        inst: &Instruction<'a>,
+        stmt: &Statement<'a>,
     ) {
         unsafe {
-            let value = match inst {
+            let value = match stmt {
                 Instruction::Nop => panic!(),
 
                 Instruction::Add { lhs, rhs, .. } => {
@@ -202,7 +202,7 @@ impl<'a> Codegen<'a> {
                     let l = mapping.get(*lhs);
                     let r = mapping.get(*rhs);
 
-                    match self.tir.ctx.get(*ty) {
+                    match self.ril.ctx.get(*ty) {
                         Type::Int { signed: true, .. } => LLVMBuildICmp(
                             builder,
                             match kind {
@@ -266,7 +266,7 @@ impl<'a> Codegen<'a> {
                     let ty = self.type_to_llvm(*to);
                     let name = CString::new("").unwrap();
 
-                    match (self.tir.ctx.get(*from), self.tir.ctx.get(*to)) {
+                    match (self.ril.ctx.get(*from), self.ril.ctx.get(*to)) {
                         (Type::Float(_), Type::Int { signed, .. }) => {
                             if signed {
                                 LLVMBuildFPToSI(builder, value, ty, name.as_ptr())
@@ -350,7 +350,7 @@ impl<'a> Codegen<'a> {
                 Instruction::ReadArg { dest: _, index } => mapping.args[*index],
 
                 Instruction::Call { func, args, .. } => {
-                    let ty = self.type_to_llvm(self.tir.get_func(*func).ty);
+                    let ty = self.type_to_llvm(self.ril.get_func(*func).ty);
                     let func = self.functions_mapping[*func];
                     let mut args = args.iter().map(|arg| mapping.get(*arg)).collect_vec();
 
@@ -396,7 +396,7 @@ impl<'a> Codegen<'a> {
                     global
                 }
                 Instruction::Unit { dest: _ } => {
-                    let ty = self.tir.ctx.alloc(Type::Unit);
+                    let ty = self.ril.ctx.alloc(Type::Unit);
 
                     let name = CString::new("").unwrap();
                     LLVMBuildAlloca(builder, self.type_to_llvm(ty), name.as_ptr())
@@ -429,19 +429,19 @@ impl<'a> Codegen<'a> {
 
             bb.instructions
                 .iter()
-                .for_each(|inst| self.eval_instruction(self.builder, mapping, inst));
+                .for_each(|inst| self.eval_stmt(self.builder, mapping, inst));
         }
     }
 
     pub fn run(mut self) {
-        for TypeDef { ty, .. } in self.tir.type_iter() {
+        for TypeDef { ty, .. } in self.ril.type_iter() {
             self.type_to_llvm(ty);
         }
 
-        for func in self.tir.clone().func_iter() {
+        for func in self.ril.clone().func_iter() {
             let mut mapping = CFGMapping::new();
 
-            let ty = match self.tir.ctx.get(func.ty) {
+            let ty = match self.ril.ctx.get(func.ty) {
                 Type::Fn(ty) => ty,
                 _ => panic!(),
             };

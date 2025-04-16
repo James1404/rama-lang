@@ -40,7 +40,24 @@ pub struct Param {
 }
 
 #[derive(Debug, Clone, Copy, Display)]
-pub enum BinaryOp {
+pub enum UnOp {
+    Not,
+    Negate,
+}
+
+impl From<TokenType> for UnOp {
+    fn from(value: TokenType) -> Self {
+        match value {
+            TokenType::Not => Self::Not,
+            TokenType::Minus => Self::Negate,
+
+            _ => panic!(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Display)]
+pub enum BinOp {
     Invalid,
 
     Add,
@@ -56,7 +73,7 @@ pub enum BinaryOp {
     NotEq,
 }
 
-impl From<TokenType> for BinaryOp {
+impl From<TokenType> for BinOp {
     fn from(value: TokenType) -> Self {
         match value {
             TokenType::Plus => Self::Add,
@@ -84,11 +101,11 @@ pub enum Node<'a> {
     Binary {
         lhs: Ref,
         rhs: Ref,
-        op: BinaryOp,
+        op: BinOp,
     },
     Unary {
         value: Ref,
-        op: Token<'a>,
+        op: UnOp,
     },
 
     Literal(Literal<'a>),
@@ -267,7 +284,7 @@ impl<'a> ASTView<'a> {
                 self.print(rhs, indentation + 1);
             }
             Node::Unary { value, op } => {
-                out!(indentation + 1, "{}", Into::<&'static str>::into(op.ty));
+                out!(indentation + 1, "{}", op);
                 self.print(value, indentation + 1);
             }
 

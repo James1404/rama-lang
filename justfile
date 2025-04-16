@@ -6,7 +6,7 @@ run *ARGS='':
 
 compile file: (run "--print-ast compile" file)
 
-tests: (run "--print-ast --backend c test")
+tests: (run "--print-ast test")
 
 dbg:
     rust-gdb target/debug/rama-lang

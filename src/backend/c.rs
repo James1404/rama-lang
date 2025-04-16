@@ -1,20 +1,20 @@
 use crate::{
     metadata::Metadata,
-    tir::{CFG, CmpKind, Instruction, Loc, Ref, TIR},
+    rair::{CFG, Statement, RValue, Place, Loc, RIL},
     types::{FloatKind, IntSize, Type, TypeID},
 };
 use core::fmt;
 use std::{fmt::Write, io, path::Path};
 
 struct CodeBuilder<'a> {
-    tir: TIR<'a>,
+    ril: RIL<'a>,
     code: String,
 }
 
 impl<'a> CodeBuilder<'a> {
-    fn new(tir: TIR<'a>) -> Self {
+    fn new(ril: RIL<'a>) -> Self {
         Self {
-            tir,
+            ril,
             code: String::new(),
         }
     }
@@ -23,7 +23,7 @@ impl<'a> CodeBuilder<'a> {
         format!("bb{}", loc.0)
     }
 
-    fn reg(reg: Ref) -> String {
+    fn reg(reg: Place) -> String {
         format!("_{}", reg.0)
     }
 
@@ -36,7 +36,7 @@ impl<'a> CodeBuilder<'a> {
     }
 
     fn convert_type(&self, ty: TypeID) -> String {
-        match self.tir.ctx.get(ty) {
+        match self.ril.ctx.get(ty) {
             Type::Void => "void".to_owned(),
             Type::Unit => "i32".to_owned(),
             Type::Bool => "bool".to_owned(),
@@ -55,7 +55,7 @@ impl<'a> CodeBuilder<'a> {
             Type::Float(FloatKind::F32) => "f32".to_owned(),
             Type::Float(FloatKind::F64) => "f64".to_owned(),
             Type::Ptr(inner) => format!("{}*", self.convert_type(inner)),
-            _ => panic!("{}", self.tir.ctx.display(ty)),
+            _ => panic!("{}", self.ril.ctx.display(ty)),
         }
     }
 
@@ -75,7 +75,7 @@ impl<'a> CodeBuilder<'a> {
         writeln!(self.code, "typedef {} {};", ty, name)
     }
 
-    fn eval_instruction(&mut self, inst: &Instruction<'a>) -> fmt::Result {
+    fn eval_stmt(&mut self, inst: &Instruction<'a>) -> fmt::Result {
         match inst {
             Instruction::Nop => panic!(),
 
@@ -213,8 +213,8 @@ impl<'a> CodeBuilder<'a> {
             }
 
             Instruction::Call { dest, func, args } => {
-                let ty = self.convert_type(self.tir.get_func(*func).ty);
-                let name = self.tir.funcs[*func].name;
+                let ty = self.convert_type(self.ril.get_func(*func).ty);
+                let name = self.ril.funcs[*func].name;
 
                 write!(self.code, "{} {} = {}(", ty, Self::reg(*dest), name)?;
 
@@ -266,14 +266,14 @@ impl<'a> CodeBuilder<'a> {
         writeln!(self.code, "")
     }
 
-    fn eval_cfg(&mut self, cfg: CFG<'a>) -> fmt::Result {
+    fn eval_cfg(&mut self, cfg: CFG) -> fmt::Result {
         for (loc, bb) in cfg.blocks.iter_enumerated() {
             writeln!(self.code, "{}:", Self::loc(loc))?;
             writeln!(self.code, "\t{{}}")?;
 
-            for inst in &bb.instructions {
+            for inst in &bb.statements {
                 write!(self.code, "\t")?;
-                self.eval_instruction(inst)?;
+                self.eval_stmt(inst)?;
             }
         }
 
@@ -319,8 +319,8 @@ impl<'a> CodeBuilder<'a> {
         // forward declerations
         //
 
-        for func in self.tir.func_iter() {
-            let ty = match self.tir.ctx.get(func.ty) {
+        for func in self.ril.func_iter() {
+            let ty = match self.ril.ctx.get(func.ty) {
                 Type::Fn(ty) => ty,
                 _ => panic!(),
             };
@@ -346,8 +346,8 @@ impl<'a> CodeBuilder<'a> {
 
         self.newline()?;
 
-        for func in self.tir.clone().func_iter() {
-            let ty = match self.tir.ctx.get(func.ty) {
+        for func in self.ril.clone().func_iter() {
+            let ty = match self.ril.ctx.get(func.ty) {
                 Type::Fn(ty) => ty,
                 _ => panic!(),
             };
@@ -377,8 +377,8 @@ impl<'a> CodeBuilder<'a> {
     }
 }
 
-pub fn compile<'a>(tir: TIR<'a>, metadata: Metadata<'a>) -> io::Result<()> {
-    let code = CodeBuilder::new(tir);
+pub fn compile<'a>(rair: RIL<'a>, metadata: Metadata<'a>) -> io::Result<()> {
+    let code = CodeBuilder::new(rair);
     let code = code.build().unwrap();
 
     println!("{}", code);
