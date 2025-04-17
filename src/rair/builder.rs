@@ -8,7 +8,11 @@ use itertools::Itertools;
 use typed_index_collections::{TiVec, ti_vec};
 
 use crate::{
-    ast::{self, Literal, Node}, rair::ProjectionKind, typed_ast::TypedAST, types::{FnType, Type, TypeID, ADT}, valuescope::ScopeArena
+    ast::{self, Literal, Node},
+    rair::ProjectionKind,
+    typed_ast::TypedAST,
+    types::{ADT, FnType, Type, TypeID},
+    valuescope::ScopeArena,
 };
 
 use super::{
@@ -142,10 +146,9 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
             Node::FieldAccess(value, field) => {
                 let field = self.tast.get_ident(field);
                 let idx = match self.tast.get_ty(value) {
-                    Type::ADT(ADT { fields, .. }) => fields
-                        .into_iter()
-                        .position(|f| f.ident == field)
-                        .unwrap(),
+                    Type::ADT(ADT { fields, .. }) => {
+                        fields.into_iter().position(|f| f.ident == field).unwrap()
+                    }
                     _ => panic!(),
                 };
 
@@ -395,7 +398,19 @@ impl<'ast> Builder<'ast> {
                     }
 
                     let mut bb = cfg.make_block();
-                    cfg.eval_expr(&mut bb, block);
+                    match self.tast.get_node(block) {
+                        Node::Block { stmts, result } => {
+                            for stmt in stmts {
+                                cfg.eval_fn_stmt(&mut bb, stmt);
+                            }
+
+                            if let Some(result) = result {
+                                let result = cfg.eval_expr(&mut bb, result);
+                                cfg.terminate(bb, Terminator::Return(Operand::Copy(result)));
+                            }
+                        }
+                        _ => panic!(),
+                    }
 
                     cfg.build()
                 };

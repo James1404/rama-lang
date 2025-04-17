@@ -171,24 +171,40 @@ impl<'ast> Display for Operand<'ast> {
     }
 }
 
-impl<'ast> Display for RValue<'ast> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Use(val) => write!(f, "{val}"),
-            Self::BinaryOp(op, lhs, rhs) => write!(f, "{lhs} {op} {rhs}"),
-            Self::UnaryOp(op, val) => write!(f, "{op}{val}"),
-            Self::Cast(val, ty) => todo!(),
-            Self::Ref(val) => write!(f, "&{val}"),
-            Self::Call(func, args) => write!(f, "call"),
-            Self::Aggregate(kind) => write!(f, "aggregate"),
-        }
+struct RValueDisplay<'a> {
+    ctx: &'a RIL<'a>,
+    rvalue: &'a RValue<'a>,
+}
+
+impl<'ast> RValue<'ast> {
+    fn display(&'ast self, ctx: &'ast RIL<'ast>) -> RValueDisplay<'ast> {
+        RValueDisplay { ctx, rvalue: self }
     }
 }
 
-impl<'ast> Display for Statement<'ast> {
+impl<'ast> Display for RValueDisplay<'ast> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Assign(place, rval) => write!(f, "{} = {}", place, rval),
+        match self.rvalue {
+            RValue::Use(val) => write!(f, "{val}"),
+            RValue::BinaryOp(op, lhs, rhs) => write!(f, "{lhs} {op} {rhs}"),
+            RValue::UnaryOp(op, val) => write!(f, "{op}{val}"),
+            RValue::Cast(val, ty) => todo!(),
+            RValue::Ref(val) => write!(f, "&{val}"),
+            RValue::Call(func, args) => {
+                write!(f, "call {} (", self.ctx.get_func(*func).name)?;
+
+                let mut iter = args.iter().peekable();
+                while let Some(arg) = iter.next() {
+                    write!(f, "{arg}")?;
+
+                    if iter.peek().is_some() {
+                        write!(f, ", ")?;
+                    }
+                }
+
+                write!(f, ")")
+            }
+            RValue::Aggregate(kind) => write!(f, "aggregate"),
         }
     }
 }
@@ -271,7 +287,12 @@ impl<'ast> RIL<'ast> {
                 println!("bb.{}:", idx.0);
 
                 for stmt in &bb.statements {
-                    println!("\t{}", stmt);
+                    print!("\t");
+                    match stmt {
+                        Statement::Assign(place, rvalue) => {
+                            println!("{} = {}", place, rvalue.display(self));
+                        }
+                    }
                 }
 
                 println!("\t{}", bb.terminator.as_ref().unwrap());
