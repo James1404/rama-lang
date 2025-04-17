@@ -4,11 +4,11 @@ use clap::ValueEnum;
 use crate::{metadata::Metadata, rair::RIL};
 
 mod c;
-mod llvm;
+//mod llvm;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Backend {
-    LLVM,
+    //LLVM,
     C,
 }
 
@@ -31,11 +31,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub fn compile<'a>(rair: RIL<'a>, metadata: Metadata<'a>, backend: Backend) -> Result<()> {
     match backend {
-        Backend::LLVM => {
-            let backend = llvm::Codegen::new(rair, metadata);
-            backend.run();
-            Ok(())
-        }
+        // Backend::LLVM => {
+        //     let backend = llvm::Codegen::new(rair, metadata);
+        //     backend.run();
+        //     Ok(())
+        // }
         Backend::C => match c::compile(rair, metadata) {
             Err(err) => Err(Error::IOError(err)),
             Ok(_) => Ok(()),

@@ -1,6 +1,6 @@
 use crate::{
     metadata::Metadata,
-    rair::{CFG, Statement, RValue, Place, Loc, RIL},
+    rair::{BinOp, CFG, Loc, Operand, Place, RIL, RValue, Statement, Terminator, UnOp},
     types::{FloatKind, IntSize, Type, TypeID},
 };
 use core::fmt;
@@ -23,8 +23,8 @@ impl<'a> CodeBuilder<'a> {
         format!("bb{}", loc.0)
     }
 
-    fn reg(reg: Place) -> String {
-        format!("_{}", reg.0)
+    fn place(place: Place) -> String {
+        format!("_{}", place.0)
     }
 
     fn arg(idx: usize) -> String {
@@ -75,190 +75,281 @@ impl<'a> CodeBuilder<'a> {
         writeln!(self.code, "typedef {} {};", ty, name)
     }
 
-    fn eval_stmt(&mut self, inst: &Instruction<'a>) -> fmt::Result {
-        match inst {
-            Instruction::Nop => panic!(),
+    fn eval_operand(&mut self, operand: &Operand<'a>) -> String {
+        match operand {
+            Operand::Const(kind) => match kind {
+                crate::rair::ConstKind::Float(val) => format!("{val}"),
+                crate::rair::ConstKind::Integer(val) => format!("{val}"),
+                crate::rair::ConstKind::String(val) => format!("{val}"),
+                crate::rair::ConstKind::True => format!("true"),
+                crate::rair::ConstKind::False => format!("false"),
+                crate::rair::ConstKind::Unit => format!("0"),
+            },
+            Operand::Copy(place) => Self::place(*place),
+        }
+    }
 
-            Instruction::Add { dest, lhs, rhs, ty } => {
-                let dest = Self::reg(*dest);
-                let lhs = Self::reg(*lhs);
-                let rhs = Self::reg(*rhs);
-                let ty = self.convert_type(*ty);
+    fn eval_binop(&mut self, op: BinOp) -> &'static str {
+        match op {
+            BinOp::Add => "+",
+            BinOp::Sub => "-",
+            BinOp::Mul => "*",
+            BinOp::Div => "/",
+            BinOp::Eq => "==",
+            BinOp::Ne => "!=",
+            BinOp::Lt => "<",
+            BinOp::Le => "<=",
+            BinOp::Gt => ">",
+            BinOp::Ge => ">=",
+        }
+    }
 
-                writeln!(self.code, "{ty} {dest} = {lhs} + {rhs};")
-            }
-            Instruction::Sub { dest, lhs, rhs, ty } => {
-                let dest = Self::reg(*dest);
-                let lhs = Self::reg(*lhs);
-                let rhs = Self::reg(*rhs);
-                let ty = self.convert_type(*ty);
+    fn eval_unop(&mut self, op: UnOp) -> &'static str {
+        match op {
+            UnOp::Not => "!",
+            UnOp::Negate => "-",
+        }
+    }
 
-                writeln!(self.code, "{ty} {dest} = {lhs} - {rhs};")
-            }
-            Instruction::Mul { dest, lhs, rhs,ty } => {
-                let dest = Self::reg(*dest);
-                let lhs = Self::reg(*lhs);
-                let rhs = Self::reg(*rhs);
-                let ty = self.convert_type(*ty);
-
-                writeln!(self.code, "{ty} {dest} = {lhs} * {rhs};")
-            }
-            Instruction::Div { dest, lhs, rhs,ty } => {
-                let dest = Self::reg(*dest);
-                let lhs = Self::reg(*lhs);
-                let rhs = Self::reg(*rhs);
-                let ty = self.convert_type(*ty);
-
-                writeln!(self.code, "{ty} {dest} = {lhs} / {rhs};")
-            }
-
-            Instruction::Cmp {
-                dest,
-                lhs,
-                rhs,
-                ty: _,
-                kind,
-            } => {
-                let l = Self::reg(*lhs);
-                let r = Self::reg(*rhs);
-
-                let cmp = match kind {
-                    CmpKind::Equal => "==",
-                    CmpKind::NotEqual => "!=",
-                    CmpKind::LessThan => "<",
-                    CmpKind::LessEqual => "<=",
-                    CmpKind::GreaterThan => ">",
-                    CmpKind::GreaterEqual => ">=",
-                };
-
-                writeln!(self.code, "bool {} = {l} {cmp} {r};", Self::reg(*dest))
-            }
-            Instruction::Negate { dest, value } => todo!(),
-            Instruction::Not { .. } => todo!(),
-            Instruction::MakeVar { dest, value, ty } => {
-                let ty = self.convert_type(*ty);
-                writeln!(
-                    self.code,
-                    "{ty} {} = {};",
-                    Self::reg(*dest),
-                    Self::reg(*value)
-                )
-            }
-            Instruction::ReadVar { dest, var } => {
-                writeln!(self.code, "{} = {};", Self::reg(*dest), Self::reg(*var))
-            }
-            Instruction::WriteVar { var, value } => {
-                writeln!(self.code, "{} = {};", Self::reg(*var), Self::reg(*value))
-            }
-            Instruction::Ref { .. } => todo!(),
-            Instruction::Deref { .. } => todo!(),
-            Instruction::Cast {
-                dest,
-                value,
-                from,
-                to,
-            } => {
-                let from = self.convert_type(*to);
-                let to = self.convert_type(*to);
-                writeln!(
-                    self.code,
-                    "{to} {} = ({from}){};",
-                    Self::reg(*dest),
-                    Self::reg(*value)
-                )
-            }
-            Instruction::MakeStruct { dest, ty } => {
-                let ty = self.convert_type(*ty);
-                writeln!(self.code, "{ty} {};", Self::reg(*dest))
-            }
-            Instruction::WriteField {
-                r#struct,
-                field,
-                value,
-                ty: _,
-            } => writeln!(
-                self.code,
-                "{}.{} = {};",
-                Self::reg(*r#struct),
-                Self::field(*field),
-                Self::reg(*value)
+    fn eval_rvalue(&mut self, rvalue: &RValue<'a>) -> String {
+        match rvalue {
+            RValue::Use(operand) => format!("{}", self.eval_operand(operand)),
+            RValue::BinaryOp(op, lhs, rhs) => format!(
+                "{} {} {}",
+                self.eval_operand(lhs),
+                self.eval_binop(*op),
+                self.eval_operand(rhs)
             ),
-
-            Instruction::ReadField {
-                dest,
-                r#struct,
-                field,
-                ty,
-            } => {
-                let ty = ""; // TODO
-                writeln!(
-                    self.code,
-                    "{} {} = &{}.{};",
-                    ty,
-                    Self::reg(*dest),
-                    Self::reg(*r#struct),
-                    Self::field(*field)
-                )
+            RValue::UnaryOp(op, value) => {
+                format!("{}{}", self.eval_unop(*op), self.eval_operand(value))
             }
-
-            Instruction::ReadArg { dest, index } => {
-                let ty = ""; // TODO
-                writeln!(
-                    self.code,
-                    "{} {} = {}",
-                    ty,
-                    Self::reg(*dest),
-                    Self::arg(*index)
-                )
+            RValue::Cast(value, ty) => {
+                format!("({}){}", self.convert_type(*ty), self.eval_operand(value))
             }
-
-            Instruction::Call { dest, func, args } => {
-                let ty = self.convert_type(self.ril.get_func(*func).ty);
-                let name = self.ril.funcs[*func].name;
-
-                write!(self.code, "{} {} = {}(", ty, Self::reg(*dest), name)?;
-
+            RValue::Ref(place) => todo!(),
+            RValue::Call(func, args) => {
+                let mut buf = format!("{}(", self.ril.get_func(*func).name);
                 let mut iter = args.iter().peekable();
                 while let Some(arg) = iter.next() {
-                    write!(self.code, "{}", Self::reg(*arg))?;
+                    write!(buf, "{}", self.eval_operand(arg));
 
                     if iter.peek().is_some() {
-                        write!(self.code, ", ")?;
+                        write!(buf, ", ");
                     }
                 }
+                write!(buf, ")");
 
-                writeln!(self.code, ");")
+                buf
             }
-            Instruction::Integer { dest, value, ty } => writeln!(
+            RValue::Aggregate(kind) => todo!(),
+        }
+    }
+
+    fn eval_stmt(&mut self, stmt: &Statement<'a>) -> fmt::Result {
+        match stmt {
+            Statement::Assign(place, rvalue) => {
+                let rvalue = self.eval_rvalue(rvalue);
+                writeln!(self.code, "{} = {};", Self::place(*place), rvalue)
+            } // Instruction::Nop => panic!(),
+
+              // Instruction::Add { dest, lhs, rhs, ty } => {
+              //     let dest = Self::reg(*dest);
+              //     let lhs = Self::reg(*lhs);
+              //     let rhs = Self::reg(*rhs);
+              //     let ty = self.convert_type(*ty);
+
+              //     writeln!(self.code, "{ty} {dest} = {lhs} + {rhs};")
+              // }
+              // Instruction::Sub { dest, lhs, rhs, ty } => {
+              //     let dest = Self::reg(*dest);
+              //     let lhs = Self::reg(*lhs);
+              //     let rhs = Self::reg(*rhs);
+              //     let ty = self.convert_type(*ty);
+
+              //     writeln!(self.code, "{ty} {dest} = {lhs} - {rhs};")
+              // }
+              // Instruction::Mul { dest, lhs, rhs,ty } => {
+              //     let dest = Self::reg(*dest);
+              //     let lhs = Self::reg(*lhs);
+              //     let rhs = Self::reg(*rhs);
+              //     let ty = self.convert_type(*ty);
+
+              //     writeln!(self.code, "{ty} {dest} = {lhs} * {rhs};")
+              // }
+              // Instruction::Div { dest, lhs, rhs,ty } => {
+              //     let dest = Self::reg(*dest);
+              //     let lhs = Self::reg(*lhs);
+              //     let rhs = Self::reg(*rhs);
+              //     let ty = self.convert_type(*ty);
+
+              //     writeln!(self.code, "{ty} {dest} = {lhs} / {rhs};")
+              // }
+
+              // Instruction::Cmp {
+              //     dest,
+              //     lhs,
+              //     rhs,
+              //     ty: _,
+              //     kind,
+              // } => {
+              //     let l = Self::reg(*lhs);
+              //     let r = Self::reg(*rhs);
+
+              //     let cmp = match kind {
+              //         CmpKind::Equal => "==",
+              //         CmpKind::NotEqual => "!=",
+              //         CmpKind::LessThan => "<",
+              //         CmpKind::LessEqual => "<=",
+              //         CmpKind::GreaterThan => ">",
+              //         CmpKind::GreaterEqual => ">=",
+              //     };
+
+              //     writeln!(self.code, "bool {} = {l} {cmp} {r};", Self::reg(*dest))
+              // }
+              // Instruction::Negate { dest, value } => todo!(),
+              // Instruction::Not { .. } => todo!(),
+              // Instruction::MakeVar { dest, value, ty } => {
+              //     let ty = self.convert_type(*ty);
+              //     writeln!(
+              //         self.code,
+              //         "{ty} {} = {};",
+              //         Self::reg(*dest),
+              //         Self::reg(*value)
+              //     )
+              // }
+              // Instruction::ReadVar { dest, var } => {
+              //     writeln!(self.code, "{} = {};", Self::reg(*dest), Self::reg(*var))
+              // }
+              // Instruction::WriteVar { var, value } => {
+              //     writeln!(self.code, "{} = {};", Self::reg(*var), Self::reg(*value))
+              // }
+              // Instruction::Ref { .. } => todo!(),
+              // Instruction::Deref { .. } => todo!(),
+              // Instruction::Cast {
+              //     dest,
+              //     value,
+              //     from,
+              //     to,
+              // } => {
+              //     let from = self.convert_type(*to);
+              //     let to = self.convert_type(*to);
+              //     writeln!(
+              //         self.code,
+              //         "{to} {} = ({from}){};",
+              //         Self::reg(*dest),
+              //         Self::reg(*value)
+              //     )
+              // }
+              // Instruction::MakeStruct { dest, ty } => {
+              //     let ty = self.convert_type(*ty);
+              //     writeln!(self.code, "{ty} {};", Self::reg(*dest))
+              // }
+              // Instruction::WriteField {
+              //     r#struct,
+              //     field,
+              //     value,
+              //     ty: _,
+              // } => writeln!(
+              //     self.code,
+              //     "{}.{} = {};",
+              //     Self::reg(*r#struct),
+              //     Self::field(*field),
+              //     Self::reg(*value)
+              // ),
+
+              // Instruction::ReadField {
+              //     dest,
+              //     r#struct,
+              //     field,
+              //     ty,
+              // } => {
+              //     let ty = ""; // TODO
+              //     writeln!(
+              //         self.code,
+              //         "{} {} = &{}.{};",
+              //         ty,
+              //         Self::reg(*dest),
+              //         Self::reg(*r#struct),
+              //         Self::field(*field)
+              //     )
+              // }
+
+              // Instruction::ReadArg { dest, index } => {
+              //     let ty = ""; // TODO
+              //     writeln!(
+              //         self.code,
+              //         "{} {} = {}",
+              //         ty,
+              //         Self::reg(*dest),
+              //         Self::arg(*index)
+              //     )
+              // }
+
+              // Instruction::Call { dest, func, args } => {
+              //     let ty = self.convert_type(self.ril.get_func(*func).ty);
+              //     let name = self.ril.funcs[*func].name;
+
+              //     write!(self.code, "{} {} = {}(", ty, Self::reg(*dest), name)?;
+
+              //     let mut iter = args.iter().peekable();
+              //     while let Some(arg) = iter.next() {
+              //         write!(self.code, "{}", Self::reg(*arg))?;
+
+              //         if iter.peek().is_some() {
+              //             write!(self.code, ", ")?;
+              //         }
+              //     }
+
+              //     writeln!(self.code, ");")
+              // }
+              // Instruction::Integer { dest, value, ty } => writeln!(
+              //     self.code,
+              //     "{} {} = {value};",
+              //     self.convert_type(*ty),
+              //     Self::reg(*dest)
+              // ),
+              // Instruction::Float { dest, value, ty } => writeln!(
+              //     self.code,
+              //     "{} {} = {value};",
+              //     self.convert_type(*ty),
+              //     Self::reg(*dest)
+              // ),
+              // Instruction::Bool { dest, value } => {
+              //     writeln!(self.code, "bool {} = {value};", Self::reg(*dest))
+              // }
+
+              // Instruction::String { dest, value } => {
+              //     writeln!(self.code, "const char* {} = \"{value}\";", Self::reg(*dest))
+              // }
+
+              // Instruction::Unit { dest } => {
+              //     writeln!(self.code, "i32 {} = 0;", Self::reg(*dest))
+              // }
+
+              // Instruction::Goto(loc) => writeln!(self.code, "goto {};", Self::loc(*loc)),
+              // Instruction::Goto_if { cond, loc } => writeln!(self.code, "if ({}) goto {};", Self::reg(*cond), Self::loc(*loc)),
+              // Instruction::Goto_if_not { cond, loc } => writeln!(self.code, "if (!{}) goto {};", Self::reg(*cond), Self::loc(*loc)),
+
+              // Instruction::ReturnNone => writeln!(self.code, "return;"),
+              // Instruction::Return(value) => writeln!(self.code, "return {};", Self::reg(*value)),
+        }
+    }
+
+    fn eval_terminator(&mut self, terminator: &Terminator<'a>) -> fmt::Result {
+        match terminator {
+            Terminator::Goto(loc) => writeln!(self.code, "goto {};", Self::loc(*loc)),
+            Terminator::If { cond, t, f } => writeln!(
                 self.code,
-                "{} {} = {value};",
-                self.convert_type(*ty),
-                Self::reg(*dest)
+                "if ({}) goto {}; else goto {};",
+                Self::place(*cond),
+                Self::loc(*t),
+                Self::loc(*f)
             ),
-            Instruction::Float { dest, value, ty } => writeln!(
-                self.code,
-                "{} {} = {value};",
-                self.convert_type(*ty),
-                Self::reg(*dest)
-            ),
-            Instruction::Bool { dest, value } => {
-                writeln!(self.code, "bool {} = {value};", Self::reg(*dest))
+            Terminator::ReturnNone => writeln!(self.code, "return;"),
+            Terminator::Return(operand) => {
+                let operand = self.eval_operand(operand);
+                writeln!(self.code, "return {};", operand)
             }
-
-            Instruction::String { dest, value } => {
-                writeln!(self.code, "const char* {} = \"{value}\";", Self::reg(*dest))
-            }
-
-            Instruction::Unit { dest } => {
-                writeln!(self.code, "i32 {} = 0;", Self::reg(*dest))
-            }
-
-            Instruction::Goto(loc) => writeln!(self.code, "goto {};", Self::loc(*loc)),
-            Instruction::Goto_if { cond, loc } => writeln!(self.code, "if ({}) goto {};", Self::reg(*cond), Self::loc(*loc)),
-            Instruction::Goto_if_not { cond, loc } => writeln!(self.code, "if (!{}) goto {};", Self::reg(*cond), Self::loc(*loc)),
-
-            Instruction::ReturnNone => writeln!(self.code, "return;"),
-            Instruction::Return(value) => writeln!(self.code, "return {};", Self::reg(*value)),
         }
     }
 
@@ -266,15 +357,18 @@ impl<'a> CodeBuilder<'a> {
         writeln!(self.code, "")
     }
 
-    fn eval_cfg(&mut self, cfg: CFG) -> fmt::Result {
+    fn eval_cfg(&mut self, cfg: CFG<'a>) -> fmt::Result {
         for (loc, bb) in cfg.blocks.iter_enumerated() {
             writeln!(self.code, "{}:", Self::loc(loc))?;
             writeln!(self.code, "\t{{}}")?;
 
-            for inst in &bb.statements {
+            for stmt in &bb.statements {
                 write!(self.code, "\t")?;
-                self.eval_stmt(inst)?;
+                self.eval_stmt(stmt)?;
             }
+
+            write!(self.code, "\t")?;
+            self.eval_terminator(&bb.terminator)?;
         }
 
         Ok(())
@@ -319,7 +413,7 @@ impl<'a> CodeBuilder<'a> {
         // forward declerations
         //
 
-        for func in self.ril.func_iter() {
+        for func in self.ril.clone().funcs {
             let ty = match self.ril.ctx.get(func.ty) {
                 Type::Fn(ty) => ty,
                 _ => panic!(),
@@ -346,7 +440,7 @@ impl<'a> CodeBuilder<'a> {
 
         self.newline()?;
 
-        for func in self.ril.clone().func_iter() {
+        for func in self.ril.clone().funcs {
             let ty = match self.ril.ctx.get(func.ty) {
                 Type::Fn(ty) => ty,
                 _ => panic!(),

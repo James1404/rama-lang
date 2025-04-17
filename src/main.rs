@@ -3,6 +3,7 @@ use std::{fs, io, path::Path};
 #[macro_use]
 extern crate derive_more;
 
+use backend::Backend;
 //use backend::Backend;
 use clap_complete::{Generator, Shell, generate};
 use lexer::Lexer;
@@ -11,9 +12,10 @@ use parser::Parser;
 
 use clap::{Command, Parser as ClapParser, Subcommand};
 use sema::{Sema, SemaError};
+use log::error;
 
 mod ast;
-//mod backend;
+mod backend;
 mod lexer;
 mod metadata;
 mod parser;
@@ -38,8 +40,8 @@ struct Cli {
     #[arg(long)]
     print_ast: bool,
 
-    // #[arg(short, long, value_enum, default_value_t = Backend::C)]
-    // backend: Backend,
+    #[arg(short, long, value_enum, default_value_t = Backend::C)]
+    backend: Backend,
 }
 
 #[derive(Subcommand)]
@@ -109,11 +111,11 @@ where
 
     ril.pretty_print();
 
-    // println!("<== Starting CodeGen ==>");
-    // match backend::compile(tir, metadata, cli.backend) {
-    //     Ok(_) => {},
-    //     Err(err) => error!("{}", err),
-    // }
+    println!("<== Starting CodeGen ==>");
+    match backend::compile(ril, metadata, cli.backend) {
+        Ok(_) => {},
+        Err(err) => error!("{}", err),
+    }
 
     Ok(())
 }

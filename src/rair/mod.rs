@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use derive_more::Display;
 use typed_index_collections::TiVec;
@@ -23,19 +23,21 @@ impl Display for Loc {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub enum ProjectionKind {
     Field(usize),
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Place(usize, Option<ProjectionKind>);
+#[derive(Debug, Clone, Copy, Hash)]
+pub struct Place(pub usize, pub Option<ProjectionKind>);
 
 impl Display for Place {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "%{}", self.0)
     }
 }
+
+#[derive(Debug, Clone, Copy)]
 pub enum ConstKind<'ast> {
     Float(&'ast str),
     Integer(&'ast str),
@@ -46,11 +48,13 @@ pub enum ConstKind<'ast> {
     Unit,
 }
 
+#[derive(Debug, Clone)]
 pub enum AggregateKind {
     Array(TypeID),
     Adt(TypeID, Vec<TypeVariable>),
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum UnOp {
     Not,
     Negate,
@@ -65,6 +69,7 @@ impl From<ast::UnOp> for UnOp {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum BinOp {
     Add,
     Sub,
@@ -97,11 +102,13 @@ impl From<ast::BinOp> for BinOp {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum Operand<'ast> {
     Const(ConstKind<'ast>),
     Copy(Place),
 }
 
+#[derive(Debug, Clone)]
 pub enum RValue<'ast> {
     Use(Operand<'ast>),
     BinaryOp(BinOp, Operand<'ast>, Operand<'ast>),
@@ -112,10 +119,12 @@ pub enum RValue<'ast> {
     Aggregate(AggregateKind),
 }
 
+#[derive(Debug, Clone)]
 pub enum Statement<'ast> {
     Assign(Place, RValue<'ast>),
 }
 
+#[derive(Debug, Clone)]
 pub enum Terminator<'ast> {
     Goto(Loc),
     If { cond: Place, t: Loc, f: Loc },
@@ -222,13 +231,16 @@ impl<'ast> Display for Terminator<'ast> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BasicBlock<'ast> {
     pub statements: Vec<Statement<'ast>>,
-    pub terminator: Option<Terminator<'ast>>,
+    pub terminator: Terminator<'ast>,
 }
 
+#[derive(Debug, Clone)]
 pub struct CFG<'ast> {
     pub blocks: TiVec<Loc, BasicBlock<'ast>>,
+    place_mapping: HashMap<Place, TypeID>,
 }
 
 #[derive(Debug, Clone, Copy, From, Into, Display)]
@@ -242,12 +254,14 @@ pub struct TypeDef<'a> {
 #[derive(Debug, Clone, Copy, From, Into, Display)]
 pub struct FuncRef(pub usize);
 
+#[derive(Debug, Clone)]
 pub struct Func<'ast> {
     pub name: &'ast str,
     pub ty: TypeID,
     pub cfg: CFG<'ast>,
 }
 
+#[derive(Debug, Clone)]
 pub struct RIL<'ast> {
     pub funcs: TiVec<FuncRef, Func<'ast>>,
     pub types: TiVec<TypeRef, TypeDef<'ast>>,
@@ -275,8 +289,7 @@ impl<'ast> RIL<'ast> {
                         }
                     }
 
-                    print!(") ");
-                    self.ctx.display(return_ty);
+                    print!(") -> {} ", self.ctx.display(return_ty));
                 }
                 _ => panic!(),
             }
@@ -290,12 +303,12 @@ impl<'ast> RIL<'ast> {
                     print!("\t");
                     match stmt {
                         Statement::Assign(place, rvalue) => {
-                            println!("{} = {}", place, rvalue.display(self));
+                            println!("{} = {};", place, rvalue.display(self));
                         }
                     }
                 }
 
-                println!("\t{}", bb.terminator.as_ref().unwrap());
+                println!("\t{};", bb.terminator);
             }
 
             println!("}}");

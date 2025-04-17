@@ -1,9 +1,8 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, HashMap},
     mem,
 };
 
-use indexmap::IndexMap;
 use itertools::Itertools;
 use typed_index_collections::{TiVec, ti_vec};
 
@@ -40,7 +39,7 @@ impl<'a> BasicBlockBuilder<'a> {
     fn build(self, terminator: Terminator<'a>) -> BasicBlock<'a> {
         BasicBlock {
             statements: self.statements,
-            terminator: Some(terminator),
+            terminator,
         }
     }
 }
@@ -48,6 +47,7 @@ impl<'a> BasicBlockBuilder<'a> {
 struct CFGBuilder<'a: 'b, 'b> {
     register_count: usize,
     blocks: BTreeMap<Loc, BasicBlock<'a>>,
+    place_mapping: HashMap<Place, TypeID>,
     current_bb: usize,
     scope: ScopeArena<'a, Place>,
     tast: &'b TypedAST<'a>,
@@ -59,6 +59,7 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
         Self {
             register_count: 0,
             blocks: BTreeMap::new(),
+            place_mapping: HashMap::new(),
             current_bb: 0,
             scope: ScopeArena::new(),
             tast,
@@ -321,7 +322,10 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
     fn build(self) -> CFG<'a> {
         let blocks: TiVec<Loc, BasicBlock> = self.blocks.into_iter().map(|x| x.1).collect();
 
-        CFG { blocks }
+        CFG {
+            blocks,
+            place_mapping: self.place_mapping,
+        }
     }
 }
 
@@ -407,6 +411,8 @@ impl<'ast> Builder<'ast> {
                             if let Some(result) = result {
                                 let result = cfg.eval_expr(&mut bb, result);
                                 cfg.terminate(bb, Terminator::Return(Operand::Copy(result)));
+                            } else {
+                                cfg.terminate(bb, Terminator::ReturnNone);
                             }
                         }
                         _ => panic!(),
