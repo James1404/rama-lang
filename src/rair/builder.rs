@@ -10,13 +10,12 @@ use crate::{
     ast::{self, Literal, Node},
     rair::ProjectionKind,
     typed_ast::TypedAST,
-    types::{ADT, FnType, Type, TypeID},
+    types::{ADT, FnType, Type, TypeContext, TypeID},
     valuescope::ScopeArena,
 };
 
 use super::{
-    BasicBlock, BinOp, CFG, ConstKind, Func, FuncRef, Loc, Operand, Place, RIL, RValue, Statement,
-    Terminator, TypeDef, TypeRef, UnOp,
+    BasicBlock, BinOp, ConstKind, Func, FuncIdx, Loc, Operand, Param, Place, RValue, Statement, Terminator, TypeDef, TypeRef, UnOp, CFG, RIL
 };
 
 struct BasicBlockBuilder<'a> {
@@ -47,30 +46,37 @@ impl<'a> BasicBlockBuilder<'a> {
 struct CFGBuilder<'a: 'b, 'b> {
     register_count: usize,
     blocks: BTreeMap<Loc, BasicBlock<'a>>,
-    place_mapping: HashMap<Place, TypeID>,
     current_bb: usize,
     scope: ScopeArena<'a, Place>,
     tast: &'b TypedAST<'a>,
+    ctx: &'b TypeContext<'a>,
     funcs: &'b FunctionMapping<'a>,
+    builder: &'b Builder<'a>,
 }
 
 impl<'a, 'b> CFGBuilder<'a, 'b> {
-    fn new(tast: &'b TypedAST<'a>, funcs: &'b FunctionMapping<'a>) -> Self {
+    fn new(
+        builder: &'b Builder<'a>,
+        tast: &'b TypedAST<'a>,
+        ctx: &'b TypeContext<'a>,
+        funcs: &'b FunctionMapping<'a>,
+    ) -> Self {
         Self {
             register_count: 0,
             blocks: BTreeMap::new(),
-            place_mapping: HashMap::new(),
             current_bb: 0,
             scope: ScopeArena::new(),
             tast,
+            ctx,
             funcs,
+            builder,
         }
     }
 
-    fn make_place(&mut self) -> Place {
+    fn make_place(&mut self, ty: TypeID) -> Place {
         let index = self.register_count;
         self.register_count += 1;
-        Place(index, None)
+        Place(index, None, ty)
     }
 
     fn make_block(&mut self) -> BasicBlockBuilder<'a> {
@@ -146,27 +152,32 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
             Node::Ident(ident) => self.scope.get(ident.text).unwrap(),
             Node::FieldAccess(value, field) => {
                 let field = self.tast.get_ident(field);
-                let idx = match self.tast.get_ty(value) {
-                    Type::ADT(ADT { fields, .. }) => {
-                        fields.into_iter().position(|f| f.ident == field).unwrap()
-                    }
+                let (idx, field) = match self.tast.get_ty(value) {
+                    Type::ADT(ADT { fields, .. }) => fields
+                        .into_iter()
+                        .find_position(|f| f.ident == field)
+                        .unwrap(),
                     _ => panic!(),
                 };
 
                 let value = self.eval_expr(bb, value);
-                Place(value.0, Some(ProjectionKind::Field(idx)))
+                Place(value.0, Some(ProjectionKind::Field(idx)), field.ty.unwrap())
             }
 
             Node::FnCall { func, args } => {
                 let name = self.tast.get_ident(func);
-                let func = self.funcs.get(name);
+                let func = self.builder.func_mapping.get(name);
                 let args = args
                     .iter()
                     .map(|arg| self.eval_operand(bb, *arg))
                     .collect_vec();
 
-                let dest = self.make_place();
-                bb.append(Statement::Assign(dest, RValue::Call(func, args)));
+                let ty = match self.builder.ctx.get(func.1) {
+                    Type::Fn(ty) => ty,
+                    _ => panic!(),
+                };
+                let dest = self.make_place(ty.return_ty);
+                bb.append(Statement::Assign(dest, RValue::Call(func.0, args)));
 
                 dest
             }
@@ -179,7 +190,7 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 if let Some(result) = result {
                     self.eval_expr(bb, result)
                 } else {
-                    let dest = self.make_place();
+                    let dest = self.make_place(self.tast.get_type_id(node));
                     bb.append(Statement::Assign(
                         dest,
                         RValue::Use(Operand::Const(ConstKind::Unit)),
@@ -190,7 +201,7 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
 
             Node::IfElse { cond, t, f } => {
                 let dest = {
-                    let dest = self.make_place();
+                    let dest = self.make_place(self.tast.get_type_id(node));
                     bb.append(Statement::Assign(
                         dest,
                         RValue::Use(Operand::Const(ConstKind::Unit)),
@@ -219,7 +230,7 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
             }
             _ => {
                 let value = self.eval_rvalue(bb, node);
-                let dest = self.make_place();
+                let dest = self.make_place(self.tast.get_type_id(node));
                 bb.append(Statement::Assign(dest, value));
                 dest
             }
@@ -233,8 +244,9 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 ty: _,
                 value,
             } => {
+                let ty = self.tast.get_type_id(value);
                 let value = self.eval_rvalue(bb, value);
-                let dest = self.make_place();
+                let dest = self.make_place(ty);
                 bb.append(Statement::Assign(dest, value));
                 self.scope.push(self.tast.get_ident(ident), dest);
             }
@@ -243,8 +255,9 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
                 ty: _,
                 value,
             } => {
+                let ty = self.tast.get_type_id(value);
                 let value = self.eval_rvalue(bb, value);
-                let dest = self.make_place();
+                let dest = self.make_place(ty);
                 bb.append(Statement::Assign(dest, value));
                 self.scope.push(self.tast.get_ident(ident), dest);
             }
@@ -322,15 +335,15 @@ impl<'a, 'b> CFGBuilder<'a, 'b> {
     fn build(self) -> CFG<'a> {
         let blocks: TiVec<Loc, BasicBlock> = self.blocks.into_iter().map(|x| x.1).collect();
 
-        CFG {
-            blocks,
-            place_mapping: self.place_mapping,
-        }
+        CFG { blocks }
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct FuncDef(FuncIdx, TypeID);
+
 struct FunctionMapping<'a> {
-    data: HashMap<&'a str, FuncRef>,
+    data: HashMap<&'a str, FuncDef>,
 }
 
 impl<'a> FunctionMapping<'a> {
@@ -340,27 +353,30 @@ impl<'a> FunctionMapping<'a> {
         }
     }
 
-    fn get(&self, name: &str) -> FuncRef {
+    fn get(&self, name: &str) -> FuncDef {
         *self.data.get(name).unwrap()
     }
 
-    fn add(&mut self, name: &'a str, func: FuncRef) {
+    fn add(&mut self, name: &'a str, func: FuncDef) {
         self.data.insert(name, func);
     }
 }
 
 pub struct Builder<'ast> {
     tast: TypedAST<'ast>,
+    ctx: TypeContext<'ast>,
     register_count: usize,
     func_mapping: FunctionMapping<'ast>,
-    funcs: TiVec<FuncRef, Func<'ast>>,
+    funcs: TiVec<FuncIdx, Func<'ast>>,
     types: TiVec<TypeRef, TypeDef<'ast>>,
 }
 
 impl<'ast> Builder<'ast> {
     pub fn new(tast: TypedAST<'ast>) -> Self {
+        let ctx = tast.context.clone();
         Self {
             tast,
+            ctx,
             register_count: 0,
             func_mapping: FunctionMapping::new(),
             funcs: ti_vec![],
@@ -382,23 +398,27 @@ impl<'ast> Builder<'ast> {
             } => {
                 let func = self.funcs.next_key();
                 let ident = self.tast.get_ident(ident);
-                self.func_mapping.add(ident, func);
-
                 let ty = self.tast.get_type_id(node);
+
+                self.func_mapping.add(ident, FuncDef(func, ty));
 
                 let Type::Fn(FnType {
                     parameters,
                     return_ty: _,
-                }) = self.tast.get_ty(node)
+                }) = self.ctx.get(ty)
                 else {
                     panic!();
                 };
 
+                let mut params = Vec::<Param>::new();
+
                 let cfg = {
-                    let mut cfg = CFGBuilder::new(&self.tast, &self.func_mapping);
-                    for (idx, param) in parameters.iter().enumerate() {
-                        let place = cfg.make_place();
+                    let mut cfg = CFGBuilder::new(&self, &self.tast, &self.ctx, &self.func_mapping);
+
+                    for (_, param) in parameters.iter().enumerate() {
+                        let place = cfg.make_place(param.1);
                         cfg.scope.push(param.0, place);
+                        params.push(Param { name: param.0, place, ty: param.1});
                     }
 
                     let mut bb = cfg.make_block();
@@ -421,13 +441,12 @@ impl<'ast> Builder<'ast> {
                     cfg.build()
                 };
 
-                let func = Func {
+                self.funcs.push(Func {
                     name: ident,
                     ty,
                     cfg,
-                };
-
-                self.funcs.push(func);
+                    params,
+                });
             }
             Node::Type {
                 ident,
@@ -462,7 +481,7 @@ impl<'ast> Builder<'ast> {
         RIL {
             funcs: self.funcs,
             types: self.types,
-            ctx: self.tast.context,
+            ctx: self.ctx,
         }
     }
 }

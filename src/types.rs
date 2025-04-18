@@ -4,7 +4,7 @@ use derive_more::Display;
 
 extern crate llvm_sys as llvm;
 
-#[derive(Debug, Clone, Copy, PartialEq, Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Display, Hash, Eq, PartialOrd, Ord)]
 pub struct TypeID(pub usize);
 
 #[derive(Debug, Clone, PartialEq)]

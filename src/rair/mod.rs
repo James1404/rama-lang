@@ -23,13 +23,13 @@ impl Display for Loc {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum ProjectionKind {
     Field(usize),
 }
 
-#[derive(Debug, Clone, Copy, Hash)]
-pub struct Place(pub usize, pub Option<ProjectionKind>);
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+pub struct Place(pub usize, pub Option<ProjectionKind>, pub TypeID);
 
 impl Display for Place {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -115,7 +115,7 @@ pub enum RValue<'ast> {
     UnaryOp(UnOp, Operand<'ast>),
     Cast(Operand<'ast>, TypeID),
     Ref(Place),
-    Call(FuncRef, Vec<Operand<'ast>>),
+    Call(FuncIdx, Vec<Operand<'ast>>),
     Aggregate(AggregateKind),
 }
 
@@ -240,7 +240,6 @@ pub struct BasicBlock<'ast> {
 #[derive(Debug, Clone)]
 pub struct CFG<'ast> {
     pub blocks: TiVec<Loc, BasicBlock<'ast>>,
-    place_mapping: HashMap<Place, TypeID>,
 }
 
 #[derive(Debug, Clone, Copy, From, Into, Display)]
@@ -249,27 +248,36 @@ pub struct TypeRef(pub usize);
 pub struct TypeDef<'a> {
     pub name: &'a str,
     pub ty: TypeID,
+
 }
 
 #[derive(Debug, Clone, Copy, From, Into, Display)]
-pub struct FuncRef(pub usize);
+pub struct FuncIdx(pub usize);
+
+#[derive(Debug, Clone, Copy)]
+pub struct Param<'ast> {
+    pub name: &'ast str,
+    pub place: Place,
+    pub ty: TypeID,
+}
 
 #[derive(Debug, Clone)]
 pub struct Func<'ast> {
     pub name: &'ast str,
     pub ty: TypeID,
     pub cfg: CFG<'ast>,
+    pub params: Vec<Param<'ast>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RIL<'ast> {
-    pub funcs: TiVec<FuncRef, Func<'ast>>,
+    pub funcs: TiVec<FuncIdx, Func<'ast>>,
     pub types: TiVec<TypeRef, TypeDef<'ast>>,
     pub ctx: TypeContext<'ast>,
 }
 
 impl<'ast> RIL<'ast> {
-    pub fn get_func(&self, index: FuncRef) -> &Func<'ast> {
+    pub fn get_func(&self, index: FuncIdx) -> &Func<'ast> {
         &self.funcs[index]
     }
 
@@ -278,12 +286,12 @@ impl<'ast> RIL<'ast> {
             print!("fn {} (", func.name);
             match self.ctx.get(func.ty) {
                 Type::Fn(FnType {
-                    parameters,
+                    parameters: _,
                     return_ty,
                 }) => {
-                    let mut iter = parameters.iter().peekable();
+                    let mut iter = func.params.iter().peekable();
                     while let Some(param) = iter.next() {
-                        print!("{}: {}", param.0, self.ctx.display(param.1));
+                        print!("{}: {}", param.place, self.ctx.display(param.ty));
                         if iter.peek().is_some() {
                             print!(", ");
                         }

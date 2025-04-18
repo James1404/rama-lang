@@ -4,7 +4,8 @@ use crate::{
     types::{FloatKind, IntSize, Type, TypeID},
 };
 use core::fmt;
-use std::{fmt::Write, io, path::Path};
+use log::error;
+use std::{collections::HashSet, fmt::Write, io, path::Path};
 
 struct CodeBuilder<'a> {
     ril: RIL<'a>,
@@ -25,10 +26,6 @@ impl<'a> CodeBuilder<'a> {
 
     fn place(place: Place) -> String {
         format!("_{}", place.0)
-    }
-
-    fn arg(idx: usize) -> String {
-        format!("arg{}", idx)
     }
 
     fn field(idx: usize) -> String {
@@ -149,7 +146,13 @@ impl<'a> CodeBuilder<'a> {
         match stmt {
             Statement::Assign(place, rvalue) => {
                 let rvalue = self.eval_rvalue(rvalue);
-                writeln!(self.code, "{} = {};", Self::place(*place), rvalue)
+                writeln!(
+                    self.code,
+                    "{} {} = {};",
+                    self.convert_type(place.2),
+                    Self::place(*place),
+                    rvalue
+                )
             } // Instruction::Nop => panic!(),
 
               // Instruction::Add { dest, lhs, rhs, ty } => {
@@ -358,13 +361,25 @@ impl<'a> CodeBuilder<'a> {
     }
 
     fn eval_cfg(&mut self, cfg: CFG<'a>) -> fmt::Result {
+        let mut defined = HashSet::<Place>::new();
+
         for (loc, bb) in cfg.blocks.iter_enumerated() {
             writeln!(self.code, "{}:", Self::loc(loc))?;
             writeln!(self.code, "\t{{}}")?;
 
             for stmt in &bb.statements {
                 write!(self.code, "\t")?;
-                self.eval_stmt(stmt)?;
+                match stmt {
+                    Statement::Assign(place, rvalue) => {
+                        let rvalue = self.eval_rvalue(rvalue);
+                        if !defined.contains(place) {
+                            write!(self.code, "{} ", self.convert_type(place.2));
+                        }
+
+                        defined.insert(*place);
+                        writeln!(self.code, "{} = {};", Self::place(*place), rvalue)?;
+                    }
+                }
             }
 
             write!(self.code, "\t")?;
@@ -421,13 +436,13 @@ impl<'a> CodeBuilder<'a> {
             let return_ty = self.convert_type(ty.return_ty);
             write!(self.code, "{} {}(", return_ty, func.name)?;
 
-            let mut iter = ty.parameters.iter().enumerate().peekable();
+            let mut iter = func.params.iter().enumerate().peekable();
             while let Some((idx, param)) = iter.next() {
                 write!(
                     self.code,
                     "{} {}",
-                    Self::arg(idx),
-                    self.convert_type(param.1)
+                    self.convert_type(param.ty),
+                    Self::place(param.place)
                 )?;
 
                 if iter.peek().is_some() {
@@ -448,13 +463,13 @@ impl<'a> CodeBuilder<'a> {
             let return_ty = self.convert_type(ty.return_ty);
             write!(self.code, "{} {}(", return_ty, func.name)?;
 
-            let mut iter = ty.parameters.iter().enumerate().peekable();
+            let mut iter = func.params.iter().enumerate().peekable();
             while let Some((idx, param)) = iter.next() {
                 write!(
                     self.code,
                     "{} {}",
-                    Self::arg(idx),
-                    self.convert_type(param.1)
+                    self.convert_type(param.ty),
+                    Self::place(param.place)
                 )?;
 
                 if iter.peek().is_some() {
@@ -485,6 +500,15 @@ pub fn compile<'a>(rair: RIL<'a>, metadata: Metadata<'a>) -> io::Result<()> {
 
     let mut file = std::fs::File::create(path)?;
     io::Write::write_all(&mut file, code.as_bytes())?;
+
+    match std::process::Command::new("cc")
+        .arg(format!("-o build/{}.exe", metadata.name))
+        .arg(path)
+        .spawn()
+    {
+        Ok(_) => {}
+        Err(err) => error!("Failed to compile c code"),
+    }
 
     Ok(())
 }
