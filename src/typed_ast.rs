@@ -1,5 +1,3 @@
-use itertools::izip;
-
 use crate::{
     ast::{ASTView, Node, Ref},
     types::{Type, TypeContext, TypeID},
@@ -8,14 +6,12 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct TypeMetadata {
     pub data: Vec<Option<TypeID>>,
-    pub root: Option<Ref>,
 }
 
 impl TypeMetadata {
     pub fn new(ast: ASTView) -> Self {
         Self {
             data: (0..ast.len()).map(|_| None).collect(),
-            root: None,
         }
     }
 
@@ -24,7 +20,7 @@ impl TypeMetadata {
     }
 
     pub fn get(&self, node: Ref) -> TypeID {
-        self.data[node.0].expect(format!("Unitinialized type at {}", node).as_str())
+        self.data[node.0].unwrap_or_else(|| panic!("Unitinialized type at {}", node))
     }
 }
 
@@ -46,17 +42,6 @@ impl<'a> TypedAST<'a> {
         }
     }
 
-    pub fn print(&self) {
-        for (idx, (ast, ty)) in izip!(self.ast.data.iter(), self.meta.data.iter().flatten()).enumerate() {
-            println!(
-                "[{}] {}: {}",
-                idx,
-                Into::<&'static str>::into(ast),
-                self.context.display(*ty)
-            );
-        }
-    }
-
     pub fn get_ident(&self, node: Ref) -> &'a str {
         match self.get_node(node) {
             Node::Ident(token) => token.text,
@@ -75,9 +60,5 @@ impl<'a> TypedAST<'a> {
     pub fn get_ty(&self, index: Ref) -> Type<'a> {
         let ty = self.get_type_id(index);
         self.context.get(ty)
-    }
-
-    pub fn get(&self, index: Ref) -> (Node<'a>, TypeID) {
-        (self.get_node(index), self.get_type_id(index))
     }
 }

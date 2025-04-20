@@ -2,11 +2,11 @@ build:
     @cargo build
 
 run *ARGS='':
-    @cargo run -- {{ARGS}}
+    cargo run -- {{ARGS}}
 
-compile file: (run "--print-ast compile" file)
+compile file: (run "--print-tokens --print-ast -b llvm compile" file)
 
-tests: (run "--print-ast -b c test")
+tests: (run "--print-ast -b llvm test")
 
 dbg:
     rust-gdb target/debug/rama-lang

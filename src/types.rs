@@ -14,7 +14,7 @@ pub struct Field<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display)]
-pub enum ADTKind {
+pub enum AdtKind {
     Struct,
     Enum,
 }
@@ -25,8 +25,8 @@ pub enum TypeVariable {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ADT<'a> {
-    pub kind: ADTKind,
+pub struct Adt<'a> {
+    pub kind: AdtKind,
     pub fields: Vec<Field<'a>>,
     pub typevariables: Vec<TypeVariable>,
 }
@@ -65,7 +65,7 @@ pub enum Type<'a> {
     Slice(TypeID),
     Array { inner: TypeID, len: usize },
 
-    ADT(ADT<'a>),
+    Adt(Adt<'a>),
 
     Ptr(TypeID),
 
@@ -100,12 +100,7 @@ impl<'a> TypeContext<'a> {
     pub fn alloc(&mut self, ty: Type<'a>) -> TypeID {
         let index = self.data.len();
         self.data.push(ty);
-        return TypeID(index);
-    }
-
-    pub fn alloc_slice(&mut self, inner: Type<'a>) -> TypeID {
-        let inner = self.alloc(inner);
-        self.alloc(Type::Slice(inner))
+        TypeID(index)
     }
 
     pub fn alloc_array(&mut self, inner: Type<'a>, len: usize) -> TypeID {
@@ -159,7 +154,7 @@ impl<'a> Display for TypeFmt<'a> {
             ),
             Type::Slice(inner) => write!(f, "[{}]", self.ctx.display(inner)),
             Type::Array { inner, len } => write!(f, "[{}; {}]", self.ctx.display(inner), len),
-            Type::ADT(adt) => {
+            Type::Adt(adt) => {
                 write!(f, "{} {{", adt.kind)?;
                 for field in adt.fields {
                     write!(f, "{}", field.ident)?;
@@ -180,7 +175,7 @@ impl<'a> Display for TypeFmt<'a> {
                 while let Some(param) = iter.next() {
                     write!(f, "{}: {}", param.0, self.ctx.display(param.1))?;
 
-                    if !iter.peek().is_none() {
+                    if iter.peek().is_some() {
                         f.write_str(", ")?;
                     }
                 }

@@ -5,9 +5,8 @@ mod frame;
 
 use crate::{
     ast::{ASTView, BinOp, Literal, Node, Ref, UnOp},
-    lexer::TokenType,
     typed_ast::{TypeMetadata, TypedAST},
-    types::{ADTKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID, ADT},
+    types::{AdtKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID, Adt},
     valuescope::ScopeArena,
 };
 
@@ -55,19 +54,17 @@ impl<'ast> Sema<'ast> {
             (Type::Float(_), Type::Float(_)) => true,
             (Type::Bool, Type::Bool) => true,
             (Type::Slice(t1), Type::Slice(t2)) => self.subtype(t1, t2),
-            (Type::ADT(adt1), Type::ADT(adt2)) => {
+            (Type::Array{inner, len: _}, Type::Slice(ty)) => self.subtype(inner, ty),
+            (Type::Adt(adt1), Type::Adt(adt2)) => {
                 if adt1.kind != adt2.kind {
                     return false;
                 }
 
                 for (f1, f2) in izip!(adt1.fields, adt2.fields) {
-                    match (f1.ty, f2.ty) {
-                        (Some(f1), Some(f2)) => {
-                            if !self.subtype(f1, f2) {
-                                return false;
-                            }
+                    if let (Some(f1), Some(f2)) = (f1.ty, f2.ty) {
+                        if !self.subtype(f1, f2) {
+                            return false;
                         }
-                        _ => {}
                     }
                 }
 
@@ -202,13 +199,13 @@ impl<'ast> Sema<'ast> {
                         });
                     }
 
-                    let adt = ADT {
-                        kind: ADTKind::Struct,
+                    let adt = Adt {
+                        kind: AdtKind::Struct,
                         fields: adt_fields,
                         typevariables: vec![],
                     };
 
-                    Ok(self.ctx.alloc(Type::ADT(adt)))
+                    Ok(self.ctx.alloc(Type::Adt(adt)))
                 }
             },
             Node::Ident(ident) => match self.scopes.get(ident.text) {
@@ -224,7 +221,7 @@ impl<'ast> Sema<'ast> {
                 let ident = self.get_ident(field)?;
 
                 match self.ctx.get(ty) {
-                    Type::ADT(ADT {
+                    Type::Adt(Adt {
                         kind: _,
                         fields,
                         typevariables: _,
@@ -252,8 +249,7 @@ impl<'ast> Sema<'ast> {
                 {
                     let args = args
                         .iter()
-                        .map(|arg| self.infer(*arg))
-                        .flatten()
+                        .flat_map(|arg| self.infer(*arg))
                         .collect_vec();
 
                     for (param, arg) in izip!(parameters, args) {
@@ -367,13 +363,13 @@ impl<'ast> Sema<'ast> {
                     });
                 }
 
-                let adt = ADT {
-                    kind: ADTKind::Struct,
+                let adt = Adt {
+                    kind: AdtKind::Struct,
                     fields: adt_fields,
                     typevariables: vec![],
                 };
 
-                self.ctx.alloc(Type::ADT(adt))
+                self.ctx.alloc(Type::Adt(adt))
             }
             Node::EnumType(variants) => {
                 let mut adt_fields = Vec::<Field>::new();
@@ -388,13 +384,13 @@ impl<'ast> Sema<'ast> {
                     });
                 }
 
-                let adt = ADT {
-                    kind: ADTKind::Struct,
+                let adt = Adt {
+                    kind: AdtKind::Struct,
                     fields: adt_fields,
                     typevariables: vec![],
                 };
 
-                self.ctx.alloc(Type::ADT(adt))
+                self.ctx.alloc(Type::Adt(adt))
             }
             Node::PtrType(inner) => {
                 let inner = self.term_to_ty(inner, None)?;
@@ -545,6 +541,38 @@ impl<'ast> Sema<'ast> {
 
                 self.metadata.set(node, ty);
             }
+            Node::ExternFnDecl { ident, params, ret } => {
+                let ident = self.get_ident(ident)?;
+
+                let returnty = self.term_to_ty(ret, None)?;
+
+                let parameters = {
+                    let mut vec = Vec::<(&'ast str, TypeID)>::new();
+                    for param in &params {
+                        let ident = self.get_ident(param.ident)?;
+                        vec.push((ident, self.term_to_ty(param.ty, None)?));
+                    }
+
+                    vec
+                };
+
+                let ty = self.ctx.alloc(Type::Fn(FnType {
+                    parameters,
+                    return_ty: returnty,
+                }));
+
+                self.scopes.push(ident, Def::Fn(ty));
+
+                self.scopes.down();
+
+                for param in params {
+                    let ident = self.get_ident(param.ident)?;
+                    let ty = self.term_to_ty(param.ty, None)?;
+                    self.scopes.push(ident, Def::Const(ty));
+                }
+
+                self.metadata.set(node, ty);
+            },
             Node::FnDecl {
                 ident,
                 params,

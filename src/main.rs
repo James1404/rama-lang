@@ -40,7 +40,7 @@ struct Cli {
     #[arg(long)]
     print_ast: bool,
 
-    #[arg(short, long, value_enum, default_value_t = Backend::C)]
+    #[arg(short, long, value_enum, default_value_t = Backend::LLVM)]
     backend: Backend,
 }
 
@@ -58,18 +58,15 @@ where
 {
     let src = std::fs::read_to_string(path.clone())?;
 
-    let metadata = Metadata {
-        name: path.as_ref().file_stem().unwrap().to_str().unwrap(),
-        path: path.as_ref(),
-    };
-
+    let metadata = Metadata::new(path.as_ref(), Path::new("build/"))?;
+    
     let lexer = Lexer::new(&src);
     let tokens = lexer.run();
 
     if cli.print_tokens {
         println!("<== Printing Tokens ==>");
         for tok in &tokens {
-            println!("{}: \"{}\"", Into::<&'static str>::into(&tok.ty), tok.text);
+            println!("{}: \"{}\"", Into::<&'static str>::into(tok.ty), tok.text);
         }
         println!()
     }
@@ -103,8 +100,6 @@ where
     if !errors.is_empty() {
         return Ok(());
     }
-
-    //tast.print();
 
     let builder = rair::Builder::new(tast);
     let ril = builder.build();

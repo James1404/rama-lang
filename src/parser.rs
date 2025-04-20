@@ -30,17 +30,7 @@ impl<'a> Cursor<'a> {
     }
 
     fn current(self) -> Token<'a> {
-        self.tokens[self.position].clone()
-    }
-
-    fn peek(self) -> Option<Token<'a>> {
-        let index = self.position + 1;
-
-        if index > self.tokens.len() {
-            None
-        } else {
-            Some(self.tokens[index].clone())
-        }
+        self.tokens[self.position]
     }
 
     fn matches(self, expected: TokenType) -> bool {
@@ -49,15 +39,6 @@ impl<'a> Cursor<'a> {
         }
 
         self.current().ty == expected
-    }
-
-    fn matches_next(self, expected: TokenType) -> bool {
-        let next = self.peek();
-
-        match next {
-            None => false,
-            Some(tok) => tok.ty == expected,
-        }
     }
 
     fn advance_if(&mut self, expected: TokenType) -> bool {
@@ -169,7 +150,11 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 )?;
             }
 
-            last = self.alloc(Node::Binary { lhs: last, rhs, op: op.ty.into() });
+            last = self.alloc(Node::Binary {
+                lhs: last,
+                rhs,
+                op: op.ty.into(),
+            });
         }
 
         Ok(last)
@@ -186,13 +171,24 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
         Ok(self.alloc(Node::Comptime(expr)))
     }
 
+    fn parse_string(&mut self) -> Result<'tokens, Ref> {
+        let token = self.cursor.current();
+        match token.ty {
+            TokenType::String => {
+                Ok(self.advance_alloc(Node::Literal(ast::Literal::String(token.text))))
+            }
+            _ => Err(ParserError::Msg {
+                msg: "Unable to parse string".to_owned(),
+                token,
+            }),
+        }
+    }
+
     fn parse_value(&mut self) -> Result<'tokens, Ref> {
         let token = self.cursor.current();
 
         let value = match token.ty {
-            TokenType::String => {
-                Ok(self.advance_alloc(Node::Literal(ast::Literal::String(token.text))))
-            }
+            TokenType::String => self.parse_string(),
             TokenType::Float => {
                 Ok(self.advance_alloc(Node::Literal(ast::Literal::Float(token.text))))
             }
@@ -855,6 +851,85 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
         })
     }
 
+    fn parse_extern_fn(&mut self) -> Result<'tokens, Ref> {
+        let token = self.cursor.current();
+
+        if !self.cursor.advance_if(TokenType::Extern) {
+            return Err(ParserError::Msg {
+                msg: "extern fn error".to_owned(),
+                token,
+            });
+        }
+
+        if !self.cursor.advance_if(TokenType::Fn) {
+            return Err(ParserError::Msg {
+                msg: "Extern function declarations requires 'fn' keyword".to_owned(),
+                token,
+            });
+        }
+
+        let ident = self.parse_ident()?;
+
+        if !self.cursor.advance_if(TokenType::LParen) {
+            return Err(ParserError::Msg {
+                msg: "Function definition requires arguments list".to_owned(),
+                token,
+            });
+        }
+
+        let mut params = Vec::<Param>::new();
+
+        loop {
+            if self.cursor.matches(TokenType::RParen) {
+                break;
+            }
+            if self.cursor.eof() {
+                return Err(ParserError::Msg {
+                    msg: "Function paramater list requires closing brace".to_owned(),
+                    token,
+                });
+            }
+
+            let ident = self.parse_ident()?;
+
+            if !self.cursor.advance_if(TokenType::Colon) {
+                return Err(ParserError::Msg {
+                    msg: "Argument needs a type with ':'".to_owned(),
+                    token,
+                });
+            }
+
+            let ty = self.parse_type_expr()?;
+            params.push(Param { ident, ty });
+
+            if !self.cursor.advance_if(TokenType::Comma) {
+                break;
+            }
+        }
+
+        if !self.cursor.advance_if(TokenType::RParen) {
+            return Err(ParserError::Msg {
+                msg: "Fn paramaters requires a closing parenthesis".to_owned(),
+                token,
+            });
+        }
+
+        let ret = self.parse_type_expr()?;
+
+        if !self.cursor.advance_if(TokenType::Semicolon) {
+            return Err(ParserError::Msg {
+                msg: "Extern fn declaration must end with a semicolon".to_owned(),
+                token,
+            });
+        }
+
+        Ok(self.alloc(Node::ExternFnDecl {
+            ident,
+            params,
+            ret,
+        }))
+    }
+
     fn parse_import(&mut self) -> Result<'tokens, Ref> {
         let token = self.cursor.current();
 
@@ -889,16 +964,15 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             return if self.cursor.advance_if(TokenType::Else) {
                 let f = self.parse_block()?;
                 Ok(self.alloc(Node::IfElse { cond, t, f }))
-            }
-            else {
+            } else {
                 Ok(self.alloc(Node::If { cond, block: t }))
             };
         }
 
-        return Err(ParserError::Msg {
+        Err(ParserError::Msg {
             msg: "Failed to parse if statement".to_owned(),
             token,
-        });
+        })
     }
 
     fn parse_toplevel_stmt(&mut self) -> Result<'tokens, Ref> {
@@ -911,6 +985,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             TokenType::Type => self.parse_type_stmt(),
             TokenType::Interface => self.parse_interface(),
             TokenType::Fn => self.parse_fn_stmt(),
+            TokenType::Extern => self.parse_extern_fn(),
             _ => Err(ParserError::Msg {
                 msg: "Invalid toplevel statement".to_owned(),
                 token,

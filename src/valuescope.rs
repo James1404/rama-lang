@@ -51,7 +51,7 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
         self.get_from_index(self.current, key)
     }
 
-    pub fn get_unchecked(&self, key: &'a str) -> T{
+    pub fn get_unchecked(&self, key: &'a str) -> T {
         unsafe { self.get_from_index(self.current, key).unwrap_unchecked() }
     }
 
@@ -73,15 +73,6 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
             panic!();
         };
         self.current = parent;
-    }
-
-    pub fn iter(&'a self) -> Iterator<'a, T> {
-        let current = self.get_index(self.current);
-        Iterator {
-            current_scope: self.current,
-            data_iter: current.data.iter(),
-            arena: self,
-        }
     }
 }
 

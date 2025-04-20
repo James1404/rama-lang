@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{collections::HashMap, fmt::Display};
+use std::fmt::Display;
 
 use derive_more::Display;
 use typed_index_collections::TiVec;
@@ -11,7 +11,7 @@ pub use builder::Builder;
 
 use crate::{
     ast,
-    types::{FnType, Type, TypeContext, TypeID, TypeVariable},
+    types::{TypeContext, TypeID, TypeVariable},
 };
 
 #[derive(Debug, Clone, Copy, From, Into, Eq, PartialEq, PartialOrd, Ord, Hash)]
@@ -23,13 +23,8 @@ impl Display for Loc {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum ProjectionKind {
-    Field(usize),
-}
-
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
-pub struct Place(pub usize, pub Option<ProjectionKind>, pub TypeID);
+#[derive(Debug, Clone, Copy, From, Into, Eq, PartialEq, PartialOrd, Ord, Hash)]
+pub struct Place(pub usize);
 
 impl Display for Place {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -39,8 +34,8 @@ impl Display for Place {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ConstKind<'ast> {
-    Float(&'ast str),
-    Integer(&'ast str),
+    Float(&'ast str, TypeID),
+    Integer(&'ast str, TypeID),
     String(&'ast str),
 
     True,
@@ -117,6 +112,7 @@ pub enum RValue<'ast> {
     Ref(Place),
     Call(FuncIdx, Vec<Operand<'ast>>),
     Aggregate(AggregateKind),
+    Len(Place),
 }
 
 #[derive(Debug, Clone)]
@@ -161,8 +157,8 @@ impl Display for UnOp {
 impl<'ast> Display for ConstKind<'ast> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Float(val) => write!(f, "{val}"),
-            Self::Integer(val) => write!(f, "{val}"),
+            Self::Float(val, _) => write!(f, "{val}"),
+            Self::Integer(val, _) => write!(f, "{val}"),
             Self::String(val) => write!(f, "\"{val}\""),
             Self::True => write!(f, "true"),
             Self::False => write!(f, "false"),
@@ -200,7 +196,14 @@ impl<'ast> Display for RValueDisplay<'ast> {
             RValue::Cast(val, ty) => todo!(),
             RValue::Ref(val) => write!(f, "&{val}"),
             RValue::Call(func, args) => {
-                write!(f, "call {} (", self.ctx.get_func(*func).name)?;
+                write!(
+                    f,
+                    "call {} (",
+                    match self.ctx.get_func(*func) {
+                        Func::Extern { name, .. } => name,
+                        Func::Decl { name, .. } => name,
+                    }
+                )?;
 
                 let mut iter = args.iter().peekable();
                 while let Some(arg) = iter.next() {
@@ -214,6 +217,7 @@ impl<'ast> Display for RValueDisplay<'ast> {
                 write!(f, ")")
             }
             RValue::Aggregate(kind) => write!(f, "aggregate"),
+            RValue::Len(place) => write!(f, "len({place})"),
         }
     }
 }
@@ -239,6 +243,7 @@ pub struct BasicBlock<'ast> {
 
 #[derive(Debug, Clone)]
 pub struct CFG<'ast> {
+    pub mapping: TiVec<Place, TypeID>,
     pub blocks: TiVec<Loc, BasicBlock<'ast>>,
 }
 
@@ -248,11 +253,16 @@ pub struct TypeRef(pub usize);
 pub struct TypeDef<'a> {
     pub name: &'a str,
     pub ty: TypeID,
-
 }
 
 #[derive(Debug, Clone, Copy, From, Into, Display)]
 pub struct FuncIdx(pub usize);
+
+#[derive(Debug, Clone, Copy)]
+pub struct ExternParam<'ast> {
+    pub name: &'ast str,
+    pub ty: TypeID,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Param<'ast> {
@@ -262,11 +272,18 @@ pub struct Param<'ast> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Func<'ast> {
-    pub name: &'ast str,
-    pub ty: TypeID,
-    pub cfg: CFG<'ast>,
-    pub params: Vec<Param<'ast>>,
+pub enum Func<'ast> {
+    Extern {
+        name: &'ast str,
+        return_ty: TypeID,
+        params: Vec<ExternParam<'ast>>,
+    },
+    Decl {
+        name: &'ast str,
+        cfg: CFG<'ast>,
+        return_ty: TypeID,
+        params: Vec<Param<'ast>>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -283,13 +300,33 @@ impl<'ast> RIL<'ast> {
 
     pub fn pretty_print(&self) {
         for func in &self.funcs {
-            print!("fn {} (", func.name);
-            match self.ctx.get(func.ty) {
-                Type::Fn(FnType {
-                    parameters: _,
+            match func {
+                Func::Extern {
+                    name,
                     return_ty,
-                }) => {
-                    let mut iter = func.params.iter().peekable();
+                    params,
+                } => {
+                    print!("extern fn {} (", name);
+
+                    let mut iter = params.iter().peekable();
+                    while let Some(param) = iter.next() {
+                        print!("{}", self.ctx.display(param.ty));
+                        if iter.peek().is_some() {
+                            print!(", ");
+                        }
+                    }
+
+                    println!(") -> {}", self.ctx.display(*return_ty));
+                }
+                Func::Decl {
+                    name,
+                    cfg,
+                    return_ty,
+                    params,
+                } => {
+                    print!("fn {} (", name);
+
+                    let mut iter = params.iter().peekable();
                     while let Some(param) = iter.next() {
                         print!("{}: {}", param.place, self.ctx.display(param.ty));
                         if iter.peek().is_some() {
@@ -297,29 +334,28 @@ impl<'ast> RIL<'ast> {
                         }
                     }
 
-                    print!(") -> {} ", self.ctx.display(return_ty));
-                }
-                _ => panic!(),
-            }
+                    print!(") -> {} ", self.ctx.display(*return_ty));
 
-            println!("{{");
+                    println!("{{");
 
-            for (idx, bb) in func.cfg.blocks.iter_enumerated() {
-                println!("bb.{}:", idx.0);
+                    for (idx, bb) in cfg.blocks.iter_enumerated() {
+                        println!("bb.{}:", idx.0);
 
-                for stmt in &bb.statements {
-                    print!("\t");
-                    match stmt {
-                        Statement::Assign(place, rvalue) => {
-                            println!("{} = {};", place, rvalue.display(self));
+                        for stmt in &bb.statements {
+                            print!("\t");
+                            match stmt {
+                                Statement::Assign(place, rvalue) => {
+                                    println!("{} = {};", place, rvalue.display(self));
+                                }
+                            }
                         }
+
+                        println!("\t{};", bb.terminator);
                     }
+
+                    println!("}}");
                 }
-
-                println!("\t{};", bb.terminator);
             }
-
-            println!("}}");
         }
     }
 }

@@ -31,6 +31,7 @@
               libxml2
 
               cargo-udeps
+              clippy
             ];
 
             RUST_BACKTRACE = "1";

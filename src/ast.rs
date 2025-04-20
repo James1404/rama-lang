@@ -133,6 +133,12 @@ pub enum Node<'a> {
         value: Ref,
     },
 
+    ExternFnDecl {
+        ident: Ref,
+        params: Vec<Param>,
+        ret: Ref,
+    },
+
     FnDecl {
         ident: Ref,
         params: Vec<Param>,
@@ -248,7 +254,7 @@ impl<'a> AST<'a> {
     pub fn alloc(&mut self, node: Node<'a>) -> Ref {
         let index = self.data.len();
         self.data.push(node);
-        return Ref(index);
+        Ref(index)
     }
 }
 
@@ -336,6 +342,23 @@ impl<'a> ASTView<'a> {
                 self.print(ident, indentation + 1);
                 self.print(value, indentation + 1);
             }
+
+            Node::ExternFnDecl {
+                ident,
+                params,
+                ret,
+            } => {
+                self.print(ident, indentation + 1);
+
+                out!(indentation + 1, "Params:");
+                for node in params {
+                    out!(indentation + 2, "Param:");
+                    self.print(node.ident, indentation + 3);
+                    self.print(node.ty, indentation + 3);
+                }
+                self.print(ret, indentation + 1);
+
+            },
 
             Node::FnDecl {
                 ident,

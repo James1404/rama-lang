@@ -1,23 +1,63 @@
-use std::ffi::CString;
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    ffi::{CStr, CString},
+    fs::File,
+    mem::MaybeUninit,
+};
 
 use crate::{
     metadata::Metadata,
-    rair::{CFG, FuncRef, Statement, RValue, Operand, Place, Loc, RIL, TypeDef},
-    types::{ADTKind, FloatKind, FnType, IntSize, Type, TypeID},
+    rair::{
+        self, BinOp, CFG, FuncIdx, Loc, Operand, Place, RIL, RValue, Statement, Terminator,
+        TypeDef, UnOp,
+    },
+    types::{AdtKind, FloatKind, FnType, IntSize, Type, TypeID},
 };
 
 extern crate llvm_sys as llvm;
 
 use itertools::{Itertools, izip};
 use llvm::{core::*, transforms::pass_builder::*, *};
-use llvm_sys::target_machine::{
-    LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetMachine, LLVMGetDefaultTargetTriple,
-    LLVMGetTargetFromTriple, LLVMRelocMode, LLVMTargetRef,
+use llvm_sys::{
+    target::LLVMSetModuleDataLayout,
+    target_machine::{
+        LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
+        LLVMGetDefaultTargetTriple, LLVMGetTargetFromTriple, LLVMRelocMode,
+        LLVMTargetMachineEmitToFile, LLVMTargetRef,
+    },
 };
 use typed_index_collections::{TiVec, ti_vec};
 
+trait ToC<'a>: Clone
+where
+    Self::Item: Clone,
+{
+    type Item;
+
+    fn to_c(self) -> Self::Item;
+}
+
+impl<'a> ToC<'a> for &str {
+    type Item = Cow<'a, CStr>;
+    fn to_c(mut self) -> Self::Item {
+        if self.is_empty() {
+            self = "\0";
+        }
+
+        // Start from the end of the string as it's the most likely place to find a null byte
+        if !self.chars().rev().any(|ch| ch == '\0') {
+            return Cow::from(
+                CString::new(self).expect("unreachable since null bytes are checked"),
+            );
+        }
+
+        unsafe { Cow::from(CStr::from_ptr(self.as_ptr() as *const _)) }
+    }
+}
+
 struct CFGMapping {
-    data: TiVec<Place, *mut LLVMValue>,
+    data: HashMap<Place, *mut LLVMValue>,
     args: Vec<*mut LLVMValue>,
     basic_blocks: TiVec<Loc, *mut LLVMBasicBlock>,
 }
@@ -25,22 +65,22 @@ struct CFGMapping {
 impl CFGMapping {
     fn new() -> Self {
         Self {
-            data: ti_vec![],
+            data: HashMap::new(),
             args: vec![],
             basic_blocks: ti_vec![],
         }
     }
 
-    fn push(&mut self, value: *mut LLVMValue) {
-        self.data.push(value);
+    fn push(&mut self, place: Place, value: *mut LLVMValue) {
+        self.data.insert(place, value);
     }
 
     fn push_bb(&mut self, bb: *mut LLVMBasicBlock) {
         self.basic_blocks.push(bb);
     }
 
-    fn get(&mut self, value: Place) -> *mut LLVMValue {
-        self.data[value]
+    fn get(&mut self, place: Place) -> *mut LLVMValue {
+        *self.data.get(&place).unwrap()
     }
 
     fn get_bb(&mut self, loc: Loc) -> *mut LLVMBasicBlock {
@@ -48,17 +88,19 @@ impl CFGMapping {
     }
 }
 
-pub struct Codegen<'a> {
+pub struct CodeBuilder<'a> {
     ril: RIL<'a>,
 
-    functions_mapping: TiVec<FuncRef, *mut LLVMValue>,
+    functions_mapping: TiVec<FuncIdx, *mut LLVMValue>,
 
     context: *mut LLVMContext,
     module: *mut LLVMModule,
     builder: *mut LLVMBuilder,
+
+    metadata: Metadata<'a>,
 }
 
-impl<'a> Drop for Codegen<'a> {
+impl<'a> Drop for CodeBuilder<'a> {
     fn drop(&mut self) {
         unsafe {
             core::LLVMDisposeBuilder(self.builder);
@@ -68,9 +110,9 @@ impl<'a> Drop for Codegen<'a> {
     }
 }
 
-impl<'a> Codegen<'a> {
+impl<'a> CodeBuilder<'a> {
     pub fn new(ril: RIL<'a>, metadata: Metadata<'a>) -> Self {
-        let name = CString::new(format!("{}.rama", metadata.name)).unwrap();
+        let name = format!("{}.rama", metadata.name).to_c();
 
         let context = unsafe { core::LLVMContextCreate() };
         let module = unsafe { core::LLVMModuleCreateWithName(name.as_ptr() as *const _) };
@@ -82,6 +124,7 @@ impl<'a> Codegen<'a> {
             context,
             module,
             builder,
+            metadata,
         }
     }
 
@@ -117,8 +160,8 @@ impl<'a> Codegen<'a> {
                     )
                 }
                 Type::Array { inner, len } => LLVMArrayType2(self.type_to_llvm(inner), len as u64),
-                Type::ADT(adt) => match adt.kind {
-                    ADTKind::Struct => {
+                Type::Adt(adt) => match adt.kind {
+                    AdtKind::Struct => {
                         let mut elements = adt
                             .fields
                             .iter()
@@ -161,262 +204,390 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn eval_stmt(
+    // fn eval_stmt(
+    //     &mut self,
+    //     builder: *mut LLVMBuilder,
+    //     mapping: &mut CFGMapping,
+    //     stmt: &Statement<'a>,
+    // ) {
+    //     unsafe {
+    //         let value = match stmt {
+    //             Instruction::Nop => panic!(),
+
+    //             Instruction::Add { lhs, rhs, .. } => {
+    //                 let lhs = mapping.get(*lhs);
+    //                 let rhs = mapping.get(*rhs);
+
+    //                 LLVMBuildAdd(builder, lhs, rhs, CString::new("addtmp").unwrap().as_ptr())
+    //             }
+    //             Instruction::Sub { lhs, rhs, .. } => {
+    //                 let lhs = mapping.get(*lhs);
+    //                 let rhs = mapping.get(*rhs);
+
+    //                 LLVMBuildSub(builder, lhs, rhs, CString::new("subtmp").unwrap().as_ptr())
+    //             }
+    //             Instruction::Mul { lhs, rhs, .. } => {
+    //                 let lhs = mapping.get(*lhs);
+    //                 let rhs = mapping.get(*rhs);
+
+    //                 LLVMBuildMul(builder, lhs, rhs, CString::new("multmp").unwrap().as_ptr())
+    //             }
+    //             Instruction::Div { lhs, rhs, .. } => {
+    //                 let lhs = mapping.get(*lhs);
+    //                 let rhs = mapping.get(*rhs);
+
+    //                 LLVMBuildFDiv(builder, lhs, rhs, CString::new("divtmp").unwrap().as_ptr())
+    //             }
+
+    //             Instruction::Cmp {
+    //                 lhs, rhs, ty, kind, ..
+    //             } => {
+    //                 let l = mapping.get(*lhs);
+    //                 let r = mapping.get(*rhs);
+
+    //                 match self.ril.ctx.get(*ty) {
+    //                     Type::Int { signed: true, .. } => LLVMBuildICmp(
+    //                         builder,
+    //                         match kind {
+    //                             CmpKind::Equal => LLVMIntPredicate::LLVMIntEQ,
+    //                             CmpKind::NotEqual => LLVMIntPredicate::LLVMIntNE,
+    //                             CmpKind::LessThan => LLVMIntPredicate::LLVMIntSLT,
+    //                             CmpKind::LessEqual => LLVMIntPredicate::LLVMIntSLE,
+    //                             CmpKind::GreaterThan => LLVMIntPredicate::LLVMIntSGT,
+    //                             CmpKind::GreaterEqual => LLVMIntPredicate::LLVMIntSGE,
+    //                         },
+    //                         l,
+    //                         r,
+    //                         CString::new("intcmp").unwrap().as_ptr(),
+    //                     ),
+    //                     Type::Int { signed: false, .. } => LLVMBuildICmp(
+    //                         builder,
+    //                         match kind {
+    //                             CmpKind::Equal => LLVMIntPredicate::LLVMIntEQ,
+    //                             CmpKind::NotEqual => LLVMIntPredicate::LLVMIntNE,
+    //                             CmpKind::LessThan => LLVMIntPredicate::LLVMIntULT,
+    //                             CmpKind::LessEqual => LLVMIntPredicate::LLVMIntULE,
+    //                             CmpKind::GreaterThan => LLVMIntPredicate::LLVMIntUGT,
+    //                             CmpKind::GreaterEqual => LLVMIntPredicate::LLVMIntUGE,
+    //                         },
+    //                         l,
+    //                         r,
+    //                         CString::new("intcmp").unwrap().as_ptr(),
+    //                     ),
+
+    //                     _ => panic!(),
+    //                 }
+    //             }
+    //             Instruction::Negate { dest: _, value } => LLVMBuildNeg(
+    //                 builder,
+    //                 mapping.get(*value),
+    //                 CString::new("negate").unwrap().as_ptr(),
+    //             ),
+    //             Instruction::Not { .. } => todo!(),
+    //             Instruction::MakeVar { dest: _, value, ty } => {
+    //                 let name = CString::new("").unwrap();
+    //                 let alloca = LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr());
+    //                 let value = mapping.get(*value);
+    //                 LLVMBuildStore(builder, value, alloca);
+
+    //                 alloca
+
+    //                 //mapping.get(*value)
+    //             }
+    //             Instruction::ReadVar { dest: _, var } => mapping.get(*var),
+    //             Instruction::WriteVar { var, value } => {
+    //                 let var = mapping.get(*var);
+    //                 let value = mapping.get(*value);
+    //                 LLVMBuildStore(builder, value, var)
+    //             }
+    //             Instruction::Ref { .. } => todo!(),
+    //             Instruction::Deref { .. } => todo!(),
+    //             Instruction::Cast {
+    //                 value, from, to, ..
+    //             } => {
+    //                 let value = mapping.get(*value);
+    //                 let ty = self.type_to_llvm(*to);
+    //                 let name = CString::new("").unwrap();
+
+    //                 match (self.ril.ctx.get(*from), self.ril.ctx.get(*to)) {
+    //                     (Type::Float(_), Type::Int { signed, .. }) => {
+    //                         if signed {
+    //                             LLVMBuildFPToSI(builder, value, ty, name.as_ptr())
+    //                         } else {
+    //                             LLVMBuildFPToUI(builder, value, ty, name.as_ptr())
+    //                         }
+    //                     }
+    //                     (Type::Int { signed, .. }, Type::Float(_)) => {
+    //                         if signed {
+    //                             LLVMBuildSIToFP(builder, value, ty, name.as_ptr())
+    //                         } else {
+    //                             LLVMBuildUIToFP(builder, value, ty, name.as_ptr())
+    //                         }
+    //                     }
+    //                     (Type::Float(FloatKind::F32), Type::Float(FloatKind::F64)) => {
+    //                         LLVMBuildFPExt(builder, value, ty, name.as_ptr())
+    //                     }
+    //                     (Type::Float(FloatKind::F64), Type::Float(FloatKind::F32)) => {
+    //                         LLVMBuildFPTrunc(builder, value, ty, name.as_ptr())
+    //                     }
+    //                     (
+    //                         Type::Int {
+    //                             size: s1,
+    //                             signed: true,
+    //                         },
+    //                         Type::Int {
+    //                             size: s2,
+    //                             signed: true,
+    //                         },
+    //                     ) => {
+    //                         if s1 < s2 {
+    //                             LLVMBuildTrunc(builder, value, ty, name.as_ptr())
+    //                         } else {
+    //                             LLVMBuildZExt(builder, value, ty, name.as_ptr())
+    //                         }
+    //                     }
+    //                     _ => panic!(),
+    //                 }
+    //             }
+    //             Instruction::MakeStruct { dest: _, ty } => {
+    //                 let name = CString::new("").unwrap();
+    //                 LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr())
+    //             }
+    //             Instruction::WriteField {
+    //                 r#struct,
+    //                 field,
+    //                 value,
+    //                 ty,
+    //             } => {
+    //                 let alloca = mapping.get(*r#struct);
+
+    //                 let name = CString::new("").unwrap();
+    //                 let alloca = LLVMBuildStructGEP2(
+    //                     builder,
+    //                     self.type_to_llvm(*ty),
+    //                     alloca,
+    //                     *field as u32,
+    //                     name.as_ptr(),
+    //                 );
+
+    //                 LLVMBuildStore(builder, mapping.get(*value), alloca);
+
+    //                 alloca
+    //             }
+    //             Instruction::ReadField {
+    //                 r#struct,
+    //                 field,
+    //                 ty,
+    //                 ..
+    //             } => {
+    //                 let name = CString::new("").unwrap();
+    //                 LLVMBuildStructGEP2(
+    //                     builder,
+    //                     self.type_to_llvm(*ty),
+    //                     mapping.get(*r#struct),
+    //                     *field as u32,
+    //                     name.as_ptr(),
+    //                 )
+    //             }
+
+    //             Instruction::ReadArg { dest: _, index } => mapping.args[*index],
+
+    //             Instruction::Call { func, args, .. } => {
+    //                 let ty = self.type_to_llvm(self.ril.get_func(*func).ty);
+    //                 let func = self.functions_mapping[*func];
+    //                 let mut args = args.iter().map(|arg| mapping.get(*arg)).collect_vec();
+
+    //                 LLVMBuildCall2(
+    //                     builder,
+    //                     ty,
+    //                     func,
+    //                     args.as_mut_ptr(),
+    //                     args.len() as u32,
+    //                     CString::new("").unwrap().as_ptr(),
+    //                 )
+    //             }
+    //             Instruction::Integer { value, ty, .. } => LLVMConstIntOfString(
+    //                 self.type_to_llvm(*ty),
+    //                 CString::new(*value).unwrap().as_ptr(),
+    //                 10,
+    //             ),
+    //             Instruction::Float { value, ty, .. } => LLVMConstRealOfString(
+    //                 self.type_to_llvm(*ty),
+    //                 CString::new(*value).unwrap().as_ptr(),
+    //             ),
+    //             Instruction::Bool { value, .. } => LLVMConstInt(
+    //                 LLVMInt8TypeInContext(self.context),
+    //                 *value as u64,
+    //                 false as i32,
+    //             ),
+    //             Instruction::String { value, .. } => {
+    //                 let ty =
+    //                     LLVMArrayType2(LLVMInt8TypeInContext(self.context), value.len() as u64);
+
+    //                 let name = CString::new(format!("global_string_{}", 0)).unwrap();
+    //                 let global = LLVMAddGlobal(self.module, ty, name.as_ptr());
+
+    //                 LLVMSetLinkage(global, LLVMLinkage::LLVMInternalLinkage);
+    //                 LLVMSetGlobalConstant(global, true as i32);
+
+    //                 let text = CString::new(*value).unwrap();
+    //                 let value =
+    //                     LLVMConstString(text.as_ptr(), text.count_bytes() as u32, false as i32);
+
+    //                 LLVMSetInitializer(global, value);
+
+    //                 global
+    //             }
+    //             Instruction::Unit { dest: _ } => {
+    //                 let ty = self.ril.ctx.alloc(Type::Unit);
+
+    //                 let name = CString::new("").unwrap();
+    //                 LLVMBuildAlloca(builder, self.type_to_llvm(ty), name.as_ptr())
+    //             }
+
+    //             Instruction::Goto(loc) => LLVMBuildBr(builder, mapping.get_bb(*loc)),
+    //             Instruction::Goto_if { cond, loc } => todo!(),
+    //             Instruction::Goto_if_not { cond, loc } => todo!(),
+
+    //             Instruction::ReturnNone => LLVMBuildRetVoid(builder),
+    //             Instruction::Return(value) => LLVMBuildRet(builder, mapping.get(*value)),
+    //         };
+
+    //         mapping.push(value);
+    //     };
+    // }
+
+    fn eval_operand(
         &mut self,
         builder: *mut LLVMBuilder,
         mapping: &mut CFGMapping,
-        stmt: &Statement<'a>,
-    ) {
+        operand: &Operand<'a>,
+    ) -> *mut LLVMValue {
         unsafe {
-            let value = match stmt {
-                Instruction::Nop => panic!(),
+            match operand {
+                Operand::Const(kind) => match kind {
+                    rair::ConstKind::Float(value, ty) => {
+                        LLVMConstRealOfString(self.type_to_llvm(*ty), value.to_c().as_ptr())
+                    }
+                    rair::ConstKind::Integer(value, ty) => {
+                        LLVMConstIntOfString(self.type_to_llvm(*ty), value.to_c().as_ptr(), 10)
+                    }
+                    rair::ConstKind::String(value) => {
+                        let ty =
+                            LLVMArrayType2(LLVMInt8TypeInContext(self.context), value.len() as u64);
 
-                Instruction::Add { lhs, rhs, .. } => {
-                    let lhs = mapping.get(*lhs);
-                    let rhs = mapping.get(*rhs);
+                        let name = CString::new(format!("global_string_{}", 0)).unwrap();
+                        let global = LLVMAddGlobal(self.module, ty, name.as_ptr());
 
-                    LLVMBuildAdd(builder, lhs, rhs, CString::new("addtmp").unwrap().as_ptr())
-                }
-                Instruction::Sub { lhs, rhs, .. } => {
-                    let lhs = mapping.get(*lhs);
-                    let rhs = mapping.get(*rhs);
+                        LLVMSetLinkage(global, LLVMLinkage::LLVMInternalLinkage);
+                        LLVMSetGlobalConstant(global, true as i32);
 
-                    LLVMBuildSub(builder, lhs, rhs, CString::new("subtmp").unwrap().as_ptr())
-                }
-                Instruction::Mul { lhs, rhs, .. } => {
-                    let lhs = mapping.get(*lhs);
-                    let rhs = mapping.get(*rhs);
+                        let text = value.to_c();
+                        let value =
+                            LLVMConstString(text.as_ptr(), text.count_bytes() as u32, false as i32);
 
-                    LLVMBuildMul(builder, lhs, rhs, CString::new("multmp").unwrap().as_ptr())
-                }
-                Instruction::Div { lhs, rhs, .. } => {
-                    let lhs = mapping.get(*lhs);
-                    let rhs = mapping.get(*rhs);
+                        LLVMSetInitializer(global, value);
 
-                    LLVMBuildFDiv(builder, lhs, rhs, CString::new("divtmp").unwrap().as_ptr())
-                }
+                        global
+                    }
+                    rair::ConstKind::True => LLVMConstInt(
+                        LLVMInt8TypeInContext(self.context),
+                        true as u64,
+                        false as i32,
+                    ),
 
-                Instruction::Cmp {
-                    lhs, rhs, ty, kind, ..
-                } => {
-                    let l = mapping.get(*lhs);
-                    let r = mapping.get(*rhs);
+                    rair::ConstKind::False => LLVMConstInt(
+                        LLVMInt8TypeInContext(self.context),
+                        false as u64,
+                        false as i32,
+                    ),
+                    rair::ConstKind::Unit => todo!(),
+                },
+                Operand::Copy(place) => mapping.get(*place),
+            }
+        }
+    }
 
-                    match self.ril.ctx.get(*ty) {
-                        Type::Int { signed: true, .. } => LLVMBuildICmp(
-                            builder,
-                            match kind {
-                                CmpKind::Equal => LLVMIntPredicate::LLVMIntEQ,
-                                CmpKind::NotEqual => LLVMIntPredicate::LLVMIntNE,
-                                CmpKind::LessThan => LLVMIntPredicate::LLVMIntSLT,
-                                CmpKind::LessEqual => LLVMIntPredicate::LLVMIntSLE,
-                                CmpKind::GreaterThan => LLVMIntPredicate::LLVMIntSGT,
-                                CmpKind::GreaterEqual => LLVMIntPredicate::LLVMIntSGE,
-                            },
-                            l,
-                            r,
-                            CString::new("intcmp").unwrap().as_ptr(),
-                        ),
-                        Type::Int { signed: false, .. } => LLVMBuildICmp(
-                            builder,
-                            match kind {
-                                CmpKind::Equal => LLVMIntPredicate::LLVMIntEQ,
-                                CmpKind::NotEqual => LLVMIntPredicate::LLVMIntNE,
-                                CmpKind::LessThan => LLVMIntPredicate::LLVMIntULT,
-                                CmpKind::LessEqual => LLVMIntPredicate::LLVMIntULE,
-                                CmpKind::GreaterThan => LLVMIntPredicate::LLVMIntUGT,
-                                CmpKind::GreaterEqual => LLVMIntPredicate::LLVMIntUGE,
-                            },
-                            l,
-                            r,
-                            CString::new("intcmp").unwrap().as_ptr(),
-                        ),
+    fn eval_rvalue(
+        &mut self,
+        builder: *mut LLVMBuilder,
+        mapping: &mut CFGMapping,
+        rvalue: &RValue<'a>,
+    ) -> *mut LLVMValue {
+        unsafe {
+            match rvalue {
+                RValue::Use(operand) => self.eval_operand(builder, mapping, operand),
+                RValue::BinaryOp(op, lhs, rhs) => {
+                    let lhs = self.eval_operand(builder, mapping, lhs);
+                    let rhs = self.eval_operand(builder, mapping, rhs);
 
+                    match op {
+                        BinOp::Add => LLVMBuildAdd(builder, lhs, rhs, "addtmp".to_c().as_ptr()),
+                        BinOp::Sub => LLVMBuildSub(builder, lhs, rhs, "subtmp".to_c().as_ptr()),
+                        BinOp::Mul => LLVMBuildMul(builder, lhs, rhs, "multmp".to_c().as_ptr()),
+                        BinOp::Div => LLVMBuildFDiv(builder, lhs, rhs, "divtmp".to_c().as_ptr()),
                         _ => panic!(),
                     }
                 }
-                Instruction::Negate { dest: _, value } => LLVMBuildNeg(
+                RValue::UnaryOp(op, value) => match op {
+                    UnOp::Not => LLVMBuildNot(
+                        builder,
+                        self.eval_operand(builder, mapping, value),
+                        "nottmp".to_c().as_ptr(),
+                    ),
+                    UnOp::Negate => LLVMBuildNeg(
+                        builder,
+                        self.eval_operand(builder, mapping, value),
+                        "negatetmp".to_c().as_ptr(),
+                    ),
+                },
+                RValue::Cast(operand, type_id) => todo!(),
+                RValue::Ref(place) => todo!(),
+                RValue::Call(func_idx, operands) => todo!(),
+                RValue::Aggregate(aggregate_kind) => todo!(),
+                RValue::Len(place) => todo!(),
+            }
+        }
+    }
+
+    fn eval_terminator(
+        &mut self,
+        builder: *mut LLVMBuilder,
+        mapping: &mut CFGMapping,
+        terminator: &Terminator<'a>,
+    ) -> *mut LLVMValue {
+        unsafe {
+            match terminator {
+                Terminator::Goto(loc) => LLVMBuildBr(builder, mapping.get_bb(*loc)),
+                Terminator::If { cond, t, f } => LLVMBuildCondBr(
                     builder,
-                    mapping.get(*value),
-                    CString::new("negate").unwrap().as_ptr(),
+                    mapping.get(*cond),
+                    mapping.get_bb(*t),
+                    mapping.get_bb(*f),
                 ),
-                Instruction::Not { .. } => todo!(),
-                Instruction::MakeVar { dest: _, value, ty } => {
-                    let name = CString::new("").unwrap();
-                    let alloca = LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr());
-                    let value = mapping.get(*value);
-                    LLVMBuildStore(builder, value, alloca);
-
-                    alloca
-
-                    //mapping.get(*value)
+                Terminator::ReturnNone => LLVMBuildRetVoid(builder),
+                Terminator::Return(value) => {
+                    LLVMBuildRet(builder, self.eval_operand(builder, mapping, value))
                 }
-                Instruction::ReadVar { dest: _, var } => mapping.get(*var),
-                Instruction::WriteVar { var, value } => {
-                    let var = mapping.get(*var);
-                    let value = mapping.get(*value);
-                    LLVMBuildStore(builder, value, var)
-                }
-                Instruction::Ref { .. } => todo!(),
-                Instruction::Deref { .. } => todo!(),
-                Instruction::Cast {
-                    value, from, to, ..
-                } => {
-                    let value = mapping.get(*value);
-                    let ty = self.type_to_llvm(*to);
-                    let name = CString::new("").unwrap();
-
-                    match (self.ril.ctx.get(*from), self.ril.ctx.get(*to)) {
-                        (Type::Float(_), Type::Int { signed, .. }) => {
-                            if signed {
-                                LLVMBuildFPToSI(builder, value, ty, name.as_ptr())
-                            } else {
-                                LLVMBuildFPToUI(builder, value, ty, name.as_ptr())
-                            }
-                        }
-                        (Type::Int { signed, .. }, Type::Float(_)) => {
-                            if signed {
-                                LLVMBuildSIToFP(builder, value, ty, name.as_ptr())
-                            } else {
-                                LLVMBuildUIToFP(builder, value, ty, name.as_ptr())
-                            }
-                        }
-                        (Type::Float(FloatKind::F32), Type::Float(FloatKind::F64)) => {
-                            LLVMBuildFPExt(builder, value, ty, name.as_ptr())
-                        }
-                        (Type::Float(FloatKind::F64), Type::Float(FloatKind::F32)) => {
-                            LLVMBuildFPTrunc(builder, value, ty, name.as_ptr())
-                        }
-                        (
-                            Type::Int {
-                                size: s1,
-                                signed: true,
-                            },
-                            Type::Int {
-                                size: s2,
-                                signed: true,
-                            },
-                        ) => {
-                            if s1 < s2 {
-                                LLVMBuildTrunc(builder, value, ty, name.as_ptr())
-                            } else {
-                                LLVMBuildZExt(builder, value, ty, name.as_ptr())
-                            }
-                        }
-                        _ => panic!(),
-                    }
-                }
-                Instruction::MakeStruct { dest: _, ty } => {
-                    let name = CString::new("").unwrap();
-                    LLVMBuildAlloca(builder, self.type_to_llvm(*ty), name.as_ptr())
-                }
-                Instruction::WriteField {
-                    r#struct,
-                    field,
-                    value,
-                    ty,
-                } => {
-                    let alloca = mapping.get(*r#struct);
-
-                    let name = CString::new("").unwrap();
-                    let alloca = LLVMBuildStructGEP2(
-                        builder,
-                        self.type_to_llvm(*ty),
-                        alloca,
-                        *field as u32,
-                        name.as_ptr(),
-                    );
-
-                    LLVMBuildStore(builder, mapping.get(*value), alloca);
-
-                    alloca
-                }
-                Instruction::ReadField {
-                    r#struct,
-                    field,
-                    ty,
-                    ..
-                } => {
-                    let name = CString::new("").unwrap();
-                    LLVMBuildStructGEP2(
-                        builder,
-                        self.type_to_llvm(*ty),
-                        mapping.get(*r#struct),
-                        *field as u32,
-                        name.as_ptr(),
-                    )
-                }
-
-                Instruction::ReadArg { dest: _, index } => mapping.args[*index],
-
-                Instruction::Call { func, args, .. } => {
-                    let ty = self.type_to_llvm(self.ril.get_func(*func).ty);
-                    let func = self.functions_mapping[*func];
-                    let mut args = args.iter().map(|arg| mapping.get(*arg)).collect_vec();
-
-                    LLVMBuildCall2(
-                        builder,
-                        ty,
-                        func,
-                        args.as_mut_ptr(),
-                        args.len() as u32,
-                        CString::new("").unwrap().as_ptr(),
-                    )
-                }
-                Instruction::Integer { value, ty, .. } => LLVMConstIntOfString(
-                    self.type_to_llvm(*ty),
-                    CString::new(*value).unwrap().as_ptr(),
-                    10,
-                ),
-                Instruction::Float { value, ty, .. } => LLVMConstRealOfString(
-                    self.type_to_llvm(*ty),
-                    CString::new(*value).unwrap().as_ptr(),
-                ),
-                Instruction::Bool { value, .. } => LLVMConstInt(
-                    LLVMInt8TypeInContext(self.context),
-                    *value as u64,
-                    false as i32,
-                ),
-                Instruction::String { value, .. } => {
-                    let ty =
-                        LLVMArrayType2(LLVMInt8TypeInContext(self.context), value.len() as u64);
-
-                    let name = CString::new(format!("global_string_{}", 0)).unwrap();
-                    let global = LLVMAddGlobal(self.module, ty, name.as_ptr());
-
-                    LLVMSetLinkage(global, LLVMLinkage::LLVMInternalLinkage);
-                    LLVMSetGlobalConstant(global, true as i32);
-
-                    let text = CString::new(*value).unwrap();
-                    let value =
-                        LLVMConstString(text.as_ptr(), text.count_bytes() as u32, false as i32);
-
-                    LLVMSetInitializer(global, value);
-
-                    global
-                }
-                Instruction::Unit { dest: _ } => {
-                    let ty = self.ril.ctx.alloc(Type::Unit);
-
-                    let name = CString::new("").unwrap();
-                    LLVMBuildAlloca(builder, self.type_to_llvm(ty), name.as_ptr())
-                }
-
-                Instruction::Goto(loc) => LLVMBuildBr(builder, mapping.get_bb(*loc)),
-                Instruction::Goto_if { cond, loc } => todo!(),
-                Instruction::Goto_if_not { cond, loc } => todo!(),
-
-                Instruction::ReturnNone => LLVMBuildRetVoid(builder),
-                Instruction::Return(value) => LLVMBuildRet(builder, mapping.get(*value)),
-            };
-
-            mapping.push(value);
-        };
+            }
+        }
     }
 
     fn eval_cfg(&mut self, mapping: &mut CFGMapping, function: *mut LLVMValue, cfg: &CFG<'a>) {
+        let entry = unsafe {
+            LLVMAppendBasicBlockInContext(self.context, function, "entry".to_c().as_ptr())
+        };
+        unsafe { LLVMPositionBuilderAtEnd(self.builder, entry) };
+
+        for (place, ty) in cfg.mapping.iter_enumerated() {
+            let name = "".to_c();
+            mapping.push(place, unsafe {
+                LLVMBuildAlloca(self.builder, self.type_to_llvm(*ty), name.as_ptr())
+            });
+        }
+
         for idx in 0..cfg.blocks.len() {
-            let llvm_name = CString::new(format!("bb{}", idx)).unwrap();
+            let llvm_name = format!("bb{}", idx).to_c();
             let llvm_bb = unsafe {
                 LLVMAppendBasicBlockInContext(self.context, function, llvm_name.as_ptr())
             };
@@ -427,52 +598,69 @@ impl<'a> Codegen<'a> {
         for (bb, llvm_bb) in izip!(cfg.blocks.iter(), mapping.basic_blocks.clone().iter()) {
             unsafe { LLVMPositionBuilderAtEnd(self.builder, *llvm_bb) };
 
-            bb.instructions
-                .iter()
-                .for_each(|inst| self.eval_stmt(self.builder, mapping, inst));
+            for stmt in &bb.statements {
+                match stmt {
+                    Statement::Assign(place, rvalue) => {
+                        let alloca = mapping.get(*place);
+                        let value = self.eval_rvalue(self.builder, mapping, rvalue);
+                        unsafe { LLVMBuildStore(self.builder, value, alloca) };
+                    }
+                }
+            }
+
+            self.eval_terminator(self.builder, mapping, &bb.terminator);
         }
     }
 
-    pub fn run(mut self) {
-        for TypeDef { ty, .. } in self.ril.type_iter() {
-            self.type_to_llvm(ty);
+    pub fn build(mut self) {
+        for TypeDef { ty, .. } in &self.ril.types {
+            self.type_to_llvm(*ty);
         }
 
-        for func in self.ril.clone().func_iter() {
+        for func in self.ril.clone().funcs {
             let mut mapping = CFGMapping::new();
 
-            let ty = match self.ril.ctx.get(func.ty) {
-                Type::Fn(ty) => ty,
-                _ => panic!(),
-            };
-
-            let ident = CString::new(func.name).unwrap();
-            let function = unsafe {
-                let mut parameters = ty
-                    .parameters
-                    .iter()
-                    .map(|param| self.type_to_llvm(param.1))
-                    .collect_vec();
-
-                let return_ty = self.type_to_llvm(ty.return_ty);
-                let function_type = LLVMFunctionType(
+            match func {
+                rair::Func::Decl {
+                    name,
+                    cfg,
                     return_ty,
-                    parameters.as_mut_ptr(),
-                    parameters.len() as u32,
-                    false as i32,
-                );
+                    params,
+                } => {
+                    let ident = name.to_c();
+                    let function = unsafe {
+                        let mut parameters = params
+                            .iter()
+                            .map(|param| self.type_to_llvm(param.ty))
+                            .collect_vec();
 
-                LLVMAddFunction(self.module, ident.as_ptr(), function_type)
-            };
+                        let return_ty = self.type_to_llvm(return_ty);
+                        let function_type = LLVMFunctionType(
+                            return_ty,
+                            parameters.as_mut_ptr(),
+                            parameters.len() as u32,
+                            false as i32,
+                        );
 
-            for idx in 0..ty.parameters.len() {
-                mapping
-                    .args
-                    .push(unsafe { LLVMGetParam(function, idx as u32) });
+                        LLVMAddFunction(self.module, ident.as_ptr(), function_type)
+                    };
+
+                    for idx in 0..params.len() {
+                        mapping
+                            .args
+                            .push(unsafe { LLVMGetParam(function, idx as u32) });
+                    }
+
+                    self.functions_mapping.push(function);
+                    self.eval_cfg(&mut mapping, function, &cfg);
+                }
+
+                rair::Func::Extern {
+                    name,
+                    return_ty,
+                    params,
+                } => todo!(),
             }
-
-            self.functions_mapping.push(function);
-            self.eval_cfg(&mut mapping, function, &func.cfg);
         }
 
         unsafe {
@@ -493,6 +681,7 @@ impl<'a> Codegen<'a> {
                 let mut error: *mut i8 = std::ptr::null_mut();
 
                 let target_triple = LLVMGetDefaultTargetTriple();
+                LLVMSetTarget(self.module, target_triple);
 
                 let mut target_ref: LLVMTargetRef = std::ptr::null_mut();
                 LLVMGetTargetFromTriple(target_triple, &mut target_ref, &mut error);
@@ -508,7 +697,11 @@ impl<'a> Codegen<'a> {
                 )
             };
 
+            let data_layout = LLVMCreateTargetDataLayout(target_machine);
+            LLVMSetModuleDataLayout(self.module, data_layout);
+
             let builder = LLVMCreatePassBuilderOptions();
+            LLVMPassBuilderOptionsSetVerifyEach(builder, true as i32);
             LLVMPassBuilderOptionsSetDebugLogging(builder, true as i32);
 
             let passes = [
@@ -520,13 +713,40 @@ impl<'a> Codegen<'a> {
             ]
             .join(", ");
 
-            let passes = CString::new(passes).unwrap();
+            let passes = passes.to_c();
 
             LLVMRunPasses(self.module, passes.as_ptr(), target_machine, builder);
 
             LLVMDumpModule(self.module);
 
+            let filename = self
+                .metadata
+                .outdir
+                .join(format!("{}.o", self.metadata.name));
+
+            drop(
+                File::create(&filename).unwrap_or_else(|_| panic!("Failed to create file {}", filename.to_str().unwrap())),
+            );
+
+            let filename = filename.to_str().unwrap();
+            let filename = filename.to_c();
+
+            let mut error_message = MaybeUninit::uninit();
+
+            LLVMTargetMachineEmitToFile(
+                target_machine,
+                self.module,
+                filename.as_ptr() as *mut _,
+                target_machine::LLVMCodeGenFileType::LLVMObjectFile,
+                error_message.as_mut_ptr(),
+            );
+
             LLVMDisposePassBuilderOptions(builder);
         };
     }
+}
+
+pub fn compile<'a>(rair: RIL<'a>, metadata: Metadata<'a>) {
+    let code = CodeBuilder::new(rair, metadata);
+    code.build();
 }
