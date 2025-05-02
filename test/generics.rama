@@ -1,0 +1,8 @@
+type Vec2<T> = struct {
+     x: T;
+     y: T;
+};
+
+fn main() void {
+   var pos: Vec2<i32> = .{ x: 0, y: 25 };
+}

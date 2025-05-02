@@ -20,9 +20,7 @@ pub enum AdtKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TypeVariable {
-    Type(TypeID),
-}
+pub struct TypeVariable(pub TypeID);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Adt<'a> {

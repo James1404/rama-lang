@@ -1,7 +1,7 @@
 use clap::ValueEnum;
 use std::{fmt::Display, io};
 
-use crate::{metadata::Metadata, rair::RIL};
+use crate::{metadata::Metadata, ril::RIL};
 
 //mod c;
 mod llvm;
@@ -29,12 +29,12 @@ impl Display for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub fn compile<'a>(rair: RIL<'a>, metadata: Metadata<'a>, backend: Backend) -> Result<()> {
+pub fn compile<'a>(ril: RIL<'a, 'a>, metadata: Metadata<'a>, backend: Backend) -> Result<()> {
     match backend {
         Backend::LLVM => {
-            llvm::compile(rair, metadata);
+            llvm::compile(ril, metadata);
             Ok(())
-        } // Backend::C => match c::compile(rair, metadata) {
+        } // Backend::C => match c::compile(ril, metadata) {
           //     Err(err) => Err(Error::IOError(err)),
           //     Ok(_) => Ok(()),
           // },

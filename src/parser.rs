@@ -464,11 +464,11 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
         };
 
-        if self.cursor.advance_if(TokenType::LParen) {
+        if self.cursor.advance_if(TokenType::LAngle) {
             let mut args = Vec::<Ref>::new();
 
             loop {
-                if self.cursor.matches(TokenType::RParen) {
+                if self.cursor.matches(TokenType::RAngle) {
                     break;
                 }
 
@@ -487,9 +487,9 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 }
             }
 
-            if !self.cursor.advance_if(TokenType::RParen) {
+            if !self.cursor.advance_if(TokenType::RAngle) {
                 return Err(ParserError::Msg {
-                    msg: "Type constructor requires a closing parenthesis".to_owned(),
+                    msg: "Type constructor requires a closing right angle".to_owned(),
                     token,
                 });
             }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use derive_more::{Display, From, Into};
 use typed_index_collections::TiVec;
 
-#[derive(Debug, Clone, Copy, Display, From, Into)]
+#[derive(Debug, Default, Clone, Copy, Display, From, Into)]
 pub struct Index(pub usize);
 
 #[derive(Debug, Clone)]
@@ -12,6 +12,7 @@ pub struct Scope<'a, T: Clone> {
     data: HashMap<&'a str, T>,
 }
 
+#[derive(Debug, Default, Clone)]
 pub struct ScopeArena<'a, T: Clone> {
     data: TiVec<Index, Scope<'a, T>>,
     current: Index,

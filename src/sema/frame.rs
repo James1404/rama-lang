@@ -1,4 +1,4 @@
-use crate::types::TypeID;
+use crate::ty::TypeID;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Frame {

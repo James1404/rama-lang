@@ -4,7 +4,6 @@ use std::{fs, io, path::Path};
 extern crate derive_more;
 
 use backend::Backend;
-//use backend::Backend;
 use clap_complete::{Generator, Shell, generate};
 use lexer::Lexer;
 use metadata::Metadata;
@@ -20,13 +19,13 @@ mod lexer;
 mod metadata;
 mod parser;
 mod sema;
-mod rair;
-mod typed_ast;
-mod types;
-mod valuescope;
+mod ril;
+mod tast;
+mod ty;
+mod scope;
 
 #[derive(ClapParser)]
-#[command(version, about, author, long_about = "A small WIP Compiler")]
+#[command(version, about, author, long_about = "The Rama Compiler")]
 #[command(propagate_version = true)]
 #[command(name = "completion-derive")]
 struct Cli {
@@ -101,7 +100,7 @@ where
         return Ok(());
     }
 
-    let builder = rair::Builder::new(tast);
+    let builder = ril::Builder::new(tast);
     let ril = builder.build();
 
     ril.pretty_print();

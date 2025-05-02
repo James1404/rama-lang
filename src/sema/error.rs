@@ -1,6 +1,12 @@
 use std::{fmt::Display, result};
 
-use crate::{ast::Ref, lexer::TokenType, types::TypeID};
+use thiserror::Error;
+
+use crate::{
+    ast::Ref,
+    lexer::TokenType,
+    ty::{TypeContext, TypeID},
+};
 
 #[derive(Debug, Clone)]
 pub enum SemaError<'a> {
@@ -43,17 +49,6 @@ impl<'a> Display for SemaError<'a> {
             SemaError::FunctionDoesNotHaveReturnType => todo!(),
             SemaError::Err(msg) => write!(f, "{}", msg),
         }
-    }
-}
-
-pub struct Error<'a> {
-    pub msg: String,
-    pub data: SemaError<'a>,
-}
-
-impl<'a> Error<'a> {
-    pub fn new(msg: String, data: SemaError<'a>) -> Self {
-        Self { data, msg }
     }
 }
 

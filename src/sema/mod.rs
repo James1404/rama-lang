@@ -5,9 +5,9 @@ mod frame;
 
 use crate::{
     ast::{ASTView, BinOp, Literal, Node, Ref, UnOp},
-    typed_ast::{TypeMetadata, TypedAST},
-    types::{AdtKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID, Adt},
-    valuescope::ScopeArena,
+    tast::{EntryPoint, TypeMetadata, TypedAST},
+    ty::{Adt, AdtKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID},
+    scope::ScopeArena,
 };
 
 pub use error::{Result, SemaError};
@@ -28,6 +28,7 @@ type Scope<'a> = ScopeArena<'a, Def>;
 pub struct Sema<'ast> {
     ast: ASTView<'ast>,
     scopes: Scope<'ast>,
+    entrypoint: Option<EntryPoint>,
 
     ctx: TypeContext<'ast>,
     callstack: Vec<Frame>,
@@ -41,6 +42,7 @@ impl<'ast> Sema<'ast> {
             ast,
             ctx: TypeContext::new(),
             scopes: Scope::new(),
+            entrypoint: None,
             callstack: vec![],
 
             metadata: TypeMetadata::new(ast),
@@ -54,7 +56,7 @@ impl<'ast> Sema<'ast> {
             (Type::Float(_), Type::Float(_)) => true,
             (Type::Bool, Type::Bool) => true,
             (Type::Slice(t1), Type::Slice(t2)) => self.subtype(t1, t2),
-            (Type::Array{inner, len: _}, Type::Slice(ty)) => self.subtype(inner, ty),
+            (Type::Array { inner, len: _ }, Type::Slice(ty)) => self.subtype(inner, ty),
             (Type::Adt(adt1), Type::Adt(adt2)) => {
                 if adt1.kind != adt2.kind {
                     return false;
@@ -247,10 +249,7 @@ impl<'ast> Sema<'ast> {
                     return_ty,
                 }) = self.ctx.get(func)
                 {
-                    let args = args
-                        .iter()
-                        .flat_map(|arg| self.infer(*arg))
-                        .collect_vec();
+                    let args = args.iter().flat_map(|arg| self.infer(*arg)).collect_vec();
 
                     for (param, arg) in izip!(parameters, args) {
                         if !self.subtype(arg, param.1) {
@@ -275,8 +274,7 @@ impl<'ast> Sema<'ast> {
                 if let Some(result) = result {
                     let ty = self.infer(result)?;
                     Ok(ty)
-                }
-                else {
+                } else {
                     Ok(self.ctx.alloc(Type::Unit))
                 }
             }
@@ -572,7 +570,7 @@ impl<'ast> Sema<'ast> {
                 }
 
                 self.metadata.set(node, ty);
-            },
+            }
             Node::FnDecl {
                 ident,
                 params,
@@ -580,6 +578,10 @@ impl<'ast> Sema<'ast> {
                 block,
             } => {
                 let ident = self.get_ident(ident)?;
+
+                if ident == "main" {
+                    
+                }
 
                 let returnty = self.term_to_ty(ret, None)?;
 
@@ -648,6 +650,14 @@ impl<'ast> Sema<'ast> {
             None => errors.push(SemaError::NoRootNode),
         }
 
-        (TypedAST::new(self.ast, self.metadata, self.ctx), errors)
+        let tast = TypedAST {
+            data: self.ast.data,
+            root: self.ast.root,
+            meta: self.metadata,
+            context: self.ctx,
+            entrypoint: self.entrypoint,
+        };
+
+        (tast, errors)
     }
 }

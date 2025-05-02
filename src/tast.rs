@@ -1,6 +1,6 @@
 use crate::{
     ast::{ASTView, Node, Ref},
-    types::{Type, TypeContext, TypeID},
+    ty::{Type, TypeContext, TypeID},
 };
 
 #[derive(Debug, Clone)]
@@ -24,24 +24,22 @@ impl TypeMetadata {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum EntryPoint {
+    Exe(Ref),
+    Lib(Ref),
+}
+
 #[derive(Debug, Clone)]
 pub struct TypedAST<'a> {
-    pub ast: ASTView<'a>,
+    pub data: &'a [Node<'a>],
+    pub root: Option<Ref>,
     pub meta: TypeMetadata,
     pub context: TypeContext<'a>,
-    pub root: Option<Ref>,
+    pub entrypoint: Option<EntryPoint>,
 }
 
 impl<'a> TypedAST<'a> {
-    pub fn new(ast: ASTView<'a>, meta: TypeMetadata, context: TypeContext<'a>) -> Self {
-        Self {
-            ast,
-            meta,
-            context,
-            root: ast.root,
-        }
-    }
-
     pub fn get_ident(&self, node: Ref) -> &'a str {
         match self.get_node(node) {
             Node::Ident(token) => token.text,
@@ -50,7 +48,7 @@ impl<'a> TypedAST<'a> {
     }
 
     pub fn get_node(&self, node: Ref) -> Node<'a> {
-        self.ast.get(node)
+        self.data[node.0].clone()
     }
 
     pub fn get_type_id(&self, index: Ref) -> TypeID {
