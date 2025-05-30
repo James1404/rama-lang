@@ -259,12 +259,12 @@ pub struct Param<'ctx: 'a, 'a> {
 #[derive(Debug, Clone)]
 pub enum Func<'ctx: 'a, 'a> {
     Extern {
-        name: &'a str,
+        name: &'ctx str,
         return_ty: TypeID,
         params: Vec<ExternParam<'a>>,
     },
     Decl {
-        name: &'a str,
+        name: &'ctx str,
         cfg: CFG<'a>,
         return_ty: TypeID,
         params: Vec<Param<'ctx, 'a>>,

@@ -1,12 +1,6 @@
 use std::{fmt::Display, result};
 
-use thiserror::Error;
-
-use crate::{
-    ast::Ref,
-    lexer::TokenType,
-    ty::{TypeContext, TypeID},
-};
+use crate::{ast::Ref, lexer::TokenType, ty::TypeID};
 
 #[derive(Debug, Clone)]
 pub enum SemaError<'a> {

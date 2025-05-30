@@ -9,14 +9,14 @@ use typed_index_collections::{TiVec, ti_vec};
 
 use crate::{
     ast::{self, Literal, Node},
+    scope::ScopeArena,
     tast::TypedAST,
     ty::{Adt, FnType, Type, TypeContext, TypeID},
-    scope::ScopeArena,
 };
 
 use super::{
     BasicBlock, BinOp, CFG, ConstKind, ExternParam, Func, FuncIdx, Loc, Operand, Param, Place, RIL,
-    RValue, Statement, Subplace, Terminator, TypeDef, TypeRef, UnOp,
+    RValue, Statement, Terminator, TypeDef, TypeRef, UnOp,
 };
 
 struct BasicBlockBuilder<'a> {
@@ -88,7 +88,7 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
             Node::FieldAccess(val, field) => {
                 let place = self.get_place(val);
                 place
-            },
+            }
             _ => panic!(),
         }
     }
@@ -356,7 +356,7 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
         idx
     }
 
-    fn build(self) -> CFG<'a> {
+    fn build(self) -> CFG<'ctx> {
         let blocks: TiVec<Loc, BasicBlock> = self.blocks.into_iter().map(|x| x.1).collect();
 
         CFG {
@@ -479,7 +479,7 @@ impl<'ctx, 'a> Builder<'ctx, 'a> {
                     params,
                 };
 
-                //self.funcs.push(decl);
+                self.funcs.push(decl);
             }
             Node::ExternFnDecl {
                 ident,
