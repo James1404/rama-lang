@@ -1,5 +1,6 @@
 use clap::ValueEnum;
 use std::{fmt::Display, io};
+use thiserror::Error;
 
 use crate::{metadata::Metadata, ril::RIL};
 
@@ -14,17 +15,10 @@ pub enum Backend {
 
 #[derive(Debug, From, Error)]
 pub enum Error {
+    #[error("IO Error: {_0}")]
     IOError(io::Error),
+    #[error("CodeGen Error: {msg}")]
     CompileError { msg: String },
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::IOError(err) => write!(f, "{}", err),
-            Error::CompileError { msg } => write!(f, "{}", msg),
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

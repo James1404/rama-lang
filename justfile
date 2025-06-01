@@ -6,7 +6,7 @@ run *ARGS='':
 
 compile file: (run "--print-tokens --print-ast -b llvm compile" file)
 
-tests: (run "-b llvm test")
+tests: (run "-b llvm tests")
 
 dbg:
     rust-gdb target/debug/rama-lang

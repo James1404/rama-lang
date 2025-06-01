@@ -1,49 +1,41 @@
-use std::{fmt::Display, result};
+use std::result;
+
+use thiserror::Error;
 
 use crate::{ast::Ref, lexer::TokenType, ty::TypeID};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum SemaError<'a> {
+    #[error("Invalid type")]
     InvalidType,
+    #[error("Invalid term {_0}")]
     InvalidTerm(Ref),
-    InvalidCast {
-        from: TypeID,
-        into: TypeID,
-    },
+    #[error("Cannot cast {from} into {into}")]
+    InvalidCast { from: TypeID, into: TypeID },
+    #[error("Invalid binary types {lhs} and {rhs}")]
     InvalidBinaryTypes {
         lhs: TypeID,
         op: TokenType,
         rhs: TypeID,
     },
+    #[error("Variable \"{_0}\" not defined")]
     NotDefined(&'a str),
 
+    #[error("Invalid root node")]
     InvalidRootNode(Ref),
+    #[error("No root node")]
     NoRootNode,
 
+    #[error("Cannot assign to const \"{_0}\"")]
     CannotAssignToConst(String),
 
+    #[error("Cannot return outside of function")]
     CannotReturnOutsideOfFunction,
+    #[error("Function does not have return type")]
     FunctionDoesNotHaveReturnType,
 
+    #[error("{_0}")]
     Err(String),
-}
-
-impl<'a> Display for SemaError<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SemaError::InvalidType => write!(f, "Invalid Type"),
-            SemaError::InvalidTerm(term) => write!(f, "Invalid term {}", term),
-            SemaError::InvalidCast { .. } => todo!(),
-            SemaError::InvalidBinaryTypes { .. } => todo!(),
-            SemaError::NotDefined(ident) => write!(f, "Variable \"{}\" not defined", ident),
-            SemaError::InvalidRootNode(_) => todo!(),
-            SemaError::NoRootNode => todo!(),
-            SemaError::CannotAssignToConst(_) => todo!(),
-            SemaError::CannotReturnOutsideOfFunction => todo!(),
-            SemaError::FunctionDoesNotHaveReturnType => todo!(),
-            SemaError::Err(msg) => write!(f, "{}", msg),
-        }
-    }
 }
 
 pub type Result<'a, T> = result::Result<T, SemaError<'a>>;

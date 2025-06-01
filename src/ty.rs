@@ -1,41 +1,52 @@
 use std::fmt::Display;
 
 use derive_more::Display;
+use itertools::izip;
 
 extern crate llvm_sys as llvm;
 
 #[derive(Debug, Clone, Copy, PartialEq, Display, Hash, Eq, PartialOrd, Ord)]
 pub struct TypeID(pub usize);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field<'a> {
-    pub ident: &'a str,
+    pub name: &'a str,
+    pub ty: TypeID,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeVariable(pub TypeID);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Variant<'a> {
+    pub name: &'a str,
     pub ty: Option<TypeID>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display)]
-pub enum AdtKind {
-    Struct,
-    Enum,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Enum<'a> {
+    pub tags: Vec<&'a str>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct TypeVariable(pub TypeID);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sum<'a> {
+    pub variants: Vec<Variant<'a>>,
+    pub typevariables: Vec<TypeVariable>,
+}
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Adt<'a> {
-    pub kind: AdtKind,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Struct<'a> {
     pub fields: Vec<Field<'a>>,
     pub typevariables: Vec<TypeVariable>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FloatKind {
     F32,
     F64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IntSize {
     Bits8,
     Bits16,
@@ -44,13 +55,13 @@ pub enum IntSize {
     BitsPtr,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnType<'a> {
     pub parameters: Vec<(&'a str, TypeID)>,
     pub return_ty: TypeID,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type<'a> {
     Void,
 
@@ -59,11 +70,14 @@ pub enum Type<'a> {
     Bool,
     Int { size: IntSize, signed: bool },
     Float(FloatKind),
+    Str,
 
     Slice(TypeID),
     Array { inner: TypeID, len: usize },
 
-    Adt(Adt<'a>),
+    Enum(Enum<'a>),
+    Struct(Struct<'a>),
+    Sum(Sum<'a>),
 
     Ptr(TypeID),
 
@@ -82,6 +96,31 @@ impl<'a> Type<'a> {
 
     pub fn int(size: IntSize) -> Type<'a> {
         Type::Int { size, signed: true }
+    }
+
+    pub fn from_str(ident: &str) -> Option<Type<'a>> {
+        match ident {
+            "void" => Some(Type::Void),
+
+            "i8" => Some(Type::int(IntSize::Bits8)),
+            "i16" => Some(Type::int(IntSize::Bits16)),
+            "i32" => Some(Type::int(IntSize::Bits32)),
+            "i64" => Some(Type::int(IntSize::Bits64)),
+            "isize" => Some(Type::int(IntSize::BitsPtr)),
+
+            "u8" => Some(Type::uint(IntSize::Bits8)),
+            "u16" => Some(Type::uint(IntSize::Bits16)),
+            "u32" => Some(Type::uint(IntSize::Bits32)),
+            "u64" => Some(Type::uint(IntSize::Bits64)),
+            "usize" => Some(Type::uint(IntSize::BitsPtr)),
+
+            "f32" => Some(Type::Float(FloatKind::F32)),
+            "f64" => Some(Type::Float(FloatKind::F64)),
+
+            "bool" => Some(Type::Bool),
+
+            _ => None,
+        }
     }
 }
 
@@ -115,6 +154,99 @@ impl<'a> TypeContext<'a> {
 
     pub fn display(&self, ty: TypeID) -> TypeFmt {
         TypeFmt { ctx: self, ty }
+    }
+
+    pub fn eq(&self, lhs: TypeID, rhs: TypeID) -> bool {
+        match (self.get(lhs), self.get(rhs)) {
+            (Type::Void, Type::Void) => true,
+            (Type::Unit, Type::Unit) => true,
+
+            (Type::Bool, Type::Bool) => true,
+            (
+                Type::Int {
+                    signed: lsign,
+                    size: lsize,
+                },
+                Type::Int {
+                    signed: rsign,
+                    size: rsize,
+                },
+            ) => lsign == rsign && lsize == rsize,
+            (Type::Float(lhs), Type::Float(rhs)) => lhs == rhs,
+            (Type::Str, Type::Str) => true,
+
+            (Type::Slice(lhs), Type::Slice(rhs)) => self.eq(lhs, rhs),
+            (
+                Type::Array {
+                    inner: lhs,
+                    len: llen,
+                },
+                Type::Array {
+                    inner: rhs,
+                    len: rlen,
+                },
+            ) => self.eq(lhs, rhs) && llen == rlen,
+
+            (Type::Enum(lhs), Type::Enum(rhs)) => lhs == rhs,
+            (Type::Struct(lhs), Type::Struct(rhs)) => 'outer: {
+                for (l, r) in izip!(lhs.fields, rhs.fields) {
+                    if l.name != r.name || !self.eq(l.ty, r.ty) {
+                        break 'outer false;
+                    }
+                }
+
+                for (l, r) in izip!(lhs.typevariables, rhs.typevariables) {
+                    if !self.eq(l.0, r.0) {
+                        break 'outer false;
+                    }
+                }
+
+                true
+            }
+            (Type::Sum(lhs), Type::Sum(rhs)) => 'outer: {
+                for (l, r) in izip!(lhs.variants, rhs.variants) {
+                    if l.name != r.name {
+                        break 'outer false;
+                    }
+
+                    match (l.ty, r.ty) {
+                        (Some(l), Some(r)) => {
+                            if !self.eq(l, r) {
+                                break 'outer false;
+                            }
+                        }
+                        (None, None) => {}
+                        _ => break 'outer false,
+                    }
+                }
+
+                for (l, r) in izip!(lhs.typevariables, rhs.typevariables) {
+                    if !self.eq(l.0, r.0) {
+                        break 'outer false;
+                    }
+                }
+
+                true
+            },
+
+            (Type::Ptr(lhs), Type::Ptr(rhs)) => self.eq(lhs, rhs),
+
+            (Type::Fn(lhs), Type::Fn(rhs)) => 'outer: {
+                for (l, r) in izip!(lhs.parameters, rhs.parameters) {
+                    if l.0 != r.0 || !self.eq(l.1, r.1) {
+                        break 'outer false;
+                    }
+                }
+
+                if !self.eq(lhs.return_ty, rhs.return_ty) {
+                    break 'outer false;                    
+                }
+
+                true
+            },
+
+            _ => false,
+        }
     }
 }
 
@@ -150,15 +282,33 @@ impl<'a> Display for TypeFmt<'a> {
                     FloatKind::F64 => "f64",
                 }
             ),
+            Type::Str => write!(f, "str"),
             Type::Slice(inner) => write!(f, "[{}]", self.ctx.display(inner)),
             Type::Array { inner, len } => write!(f, "[{}; {}]", self.ctx.display(inner), len),
-            Type::Adt(adt) => {
-                write!(f, "{} {{", adt.kind)?;
-                for field in adt.fields {
-                    write!(f, "{}", field.ident)?;
-                    if let Some(ty) = field.ty {
+            Type::Enum(v) => {
+                write!(f, "enum {{")?;
+                for tag in v.tags {
+                    write!(f, "{}", tag)?;
+                    write!(f, ",")?;
+                }
+                write!(f, "}}")
+            }
+            Type::Sum(v) => {
+                write!(f, "sum {{")?;
+                for variant in v.variants {
+                    write!(f, "{}", variant.name)?;
+                    if let Some(ty) = variant.ty {
                         write!(f, ": {}", self.ctx.display(ty))?;
                     }
+                    write!(f, ",")?;
+                }
+                write!(f, "}}")
+            }
+            Type::Struct(v) => {
+                write!(f, "struct {{")?;
+                for field in v.fields {
+                    write!(f, "{}", field.name)?;
+                    write!(f, ": {}", self.ctx.display(field.ty))?;
                     write!(f, ",")?;
                 }
                 write!(f, "}}")

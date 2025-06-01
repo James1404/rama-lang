@@ -116,12 +116,25 @@ pub enum Operand<'a> {
 #[derive(Debug, Clone)]
 pub enum RValue<'a> {
     Use(Operand<'a>),
-    BinaryOp(BinOp, Operand<'a>, Operand<'a>),
-    UnaryOp(UnOp, Operand<'a>),
-    Cast(Operand<'a>, TypeID),
+    BinaryOp(BinOp, Operand<'a>, Operand<'a>, TypeID),
+    UnaryOp(UnOp, Operand<'a>, TypeID),
+    Cast {
+        value: Operand<'a>,
+        from: TypeID,
+        into: TypeID,
+    },
     Ref(Place<'a>),
     Call(FuncIdx, Vec<Operand<'a>>),
-    BuildAdt(TypeID, Vec<TypeVariable>, Vec<Operand<'a>>),
+
+    BuildStruct(TypeID, Vec<TypeVariable>, Vec<Operand<'a>>),
+    BuildEnum(TypeID, i32),
+    BuildSum {
+        ty: TypeID,
+        type_args: Vec<TypeVariable>,
+        variant: i32,
+        operand: Operand<'a>,
+    },
+
     BuildArray(TypeID, Vec<Operand<'a>>),
     BuildSlice(TypeID, Operand<'a>),
     Len(Place<'a>),
@@ -159,9 +172,9 @@ impl<'ctx, 'a> Display for RValueDisplay<'ctx, 'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.rvalue {
             RValue::Use(val) => write!(f, "{val}"),
-            RValue::BinaryOp(op, lhs, rhs) => write!(f, "{lhs} {op} {rhs}"),
-            RValue::UnaryOp(op, val) => write!(f, "{op}{val}"),
-            RValue::Cast(val, ty) => write!(f, "{val} as {}", self.ril.ctx.display(*ty)),
+            RValue::BinaryOp(op, lhs, rhs, _) => write!(f, "{lhs} {op} {rhs}"),
+            RValue::UnaryOp(op, val, _) => write!(f, "{op}{val}"),
+            RValue::Cast { value, from: _, into } => write!(f, "{value} as {}", self.ril.ctx.display(*into)),
             RValue::Ref(val) => write!(f, "&{val}"),
             RValue::Call(func, args) => {
                 write!(
@@ -184,8 +197,8 @@ impl<'ctx, 'a> Display for RValueDisplay<'ctx, 'a> {
 
                 write!(f, ")")
             }
-            RValue::BuildAdt(ty, type_args, _fields) => {
-                write!(f, "build {} <", self.ril.ctx.display(*ty))?;
+            RValue::BuildStruct(ty, type_args, _fields) => {
+                write!(f, "build_struct {} <", self.ril.ctx.display(*ty))?;
 
                 let mut iter = type_args.iter().peekable();
                 while let Some(arg) = iter.next() {
@@ -197,6 +210,28 @@ impl<'ctx, 'a> Display for RValueDisplay<'ctx, 'a> {
                 }
 
                 write!(f, ">")
+            }
+            RValue::BuildEnum(ty, variant) => {
+                write!(f, "build_enum {} {}", self.ril.ctx.display(*ty), variant)
+            }
+            RValue::BuildSum {
+                ty,
+                type_args,
+                variant,
+                operand,
+            } => {
+                write!(f, "build_sum {} <", self.ril.ctx.display(*ty))?;
+
+                let mut iter = type_args.iter().peekable();
+                while let Some(arg) = iter.next() {
+                    write!(f, "{}", self.ril.ctx.display(arg.0))?;
+
+                    if iter.peek().is_some() {
+                        write!(f, ", ")?;
+                    }
+                }
+
+                write!(f, "> {} = {}", variant, operand)
             }
             RValue::BuildArray(inner, data) => {
                 write!(f, "array {} [", self.ril.ctx.display(*inner))?;

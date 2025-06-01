@@ -11,7 +11,7 @@ use crate::{
     ast::{self, Literal, Node},
     scope::ScopeArena,
     tast::TypedAST,
-    ty::{Adt, FnType, Type, TypeContext, TypeID},
+    ty::{FnType, Struct, Type, TypeContext, TypeID},
 };
 
 use super::{
@@ -136,7 +136,7 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
 
                         bb.append(Statement::Assign(
                             dest,
-                            RValue::BuildAdt(ty, type_args, fields),
+                            RValue::BuildStruct(ty, type_args, fields),
                         ));
 
                         Operand::Copy(dest)
@@ -157,20 +157,27 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
                 let lhs = self.eval_operand(bb, l);
                 let rhs = self.eval_operand(bb, r);
                 let op = BinOp::from(op);
+                let ty = self.builder.tast.get_type_id(node);
 
-                RValue::BinaryOp(op, lhs, rhs)
+                RValue::BinaryOp(op, lhs, rhs, ty)
             }
             Node::Unary { op, value } => {
                 let value = self.eval_operand(bb, value);
                 let op = UnOp::from(op);
+                let ty = self.builder.tast.get_type_id(node);
 
-                RValue::UnaryOp(op, value)
+                RValue::UnaryOp(op, value, ty)
             }
             Node::Cast { value, ty } => {
+                let from = self.builder.tast.get_type_id(value);
                 let value = self.eval_operand(bb, value);
-                let ty = self.builder.tast.get_type_id(ty);
+                let into = self.builder.tast.get_type_id(ty);
 
-                RValue::Cast(value, ty)
+                RValue::Cast {
+                    value,
+                    from,
+                    into,
+                }
             }
             _ => RValue::Use(self.eval_operand(bb, node)),
         }
@@ -182,9 +189,9 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
             Node::FieldAccess(value, field) => {
                 let field = self.builder.tast.get_ident(field);
                 let (idx, field) = match self.builder.tast.get_ty(value) {
-                    Type::Adt(Adt { fields, .. }) => fields
+                    Type::Struct(Struct { fields, .. }) => fields
                         .into_iter()
-                        .find_position(|f| f.ident == field)
+                        .find_position(|f| f.name == field)
                         .unwrap(),
                     _ => panic!(),
                 };
@@ -291,8 +298,8 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
 
                     let field = self.builder.tast.get_ident(field);
                     let field = match self.builder.tast.get_ty(structvalue) {
-                        Type::Adt(Adt { fields, .. }) => {
-                            fields.iter().position(|f| f.ident == field).unwrap()
+                        Type::Struct(Struct { fields, .. }) => {
+                            fields.iter().position(|f| f.name == field).unwrap()
                         }
                         _ => panic!(),
                     };

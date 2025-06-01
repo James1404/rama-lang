@@ -45,7 +45,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Test,
+    Tests,
     Compile {
         file: String,
     },
@@ -148,7 +148,7 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Test) => {
+        Some(Commands::Tests) => {
             tests(&cli)?;
         }
         Some(Commands::Compile { file }) => {

@@ -1,4 +1,25 @@
-type String = {
-     data: [u8],
+type Vec<T> = struct {
      len: usize,
+     data: *T;
+}
+
+fn len<T>(vec: Vec<T>) -> usize {
+   vec.len()
+}
+
+fn from<T>(slice: [T]) -> Vec<T> {
+}
+
+type str = [char];
+type String = struct {
+     data: Vec<char>,
+};
+
+impl String {
+     fn len(string: String) -> usize {
+          string.data.len()
+     }
+
+     fn from(s: str) -> String {
+     }
 }

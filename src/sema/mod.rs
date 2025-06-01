@@ -5,9 +5,11 @@ mod frame;
 
 use crate::{
     ast::{ASTView, BinOp, Literal, Node, Ref, UnOp},
-    tast::{EntryPoint, TypeMetadata, TypedAST},
-    ty::{Adt, AdtKind, Field, FloatKind, FnType, IntSize, Type, TypeContext, TypeID},
     scope::ScopeArena,
+    tast::{EntryPoint, TypeMetadata, TypedAST},
+    ty::{
+        Enum, Field, FloatKind, FnType, IntSize, Struct, Sum, Type, TypeContext, TypeID, Variant,
+    },
 };
 
 pub use error::{Result, SemaError};
@@ -49,30 +51,17 @@ impl<'ast> Sema<'ast> {
         }
     }
 
+    fn eq(&self, lhs: TypeID, rhs: TypeID) -> bool {
+        self.ctx.eq(lhs, rhs)
+    }
+
     fn subtype(&self, lhs: TypeID, rhs: TypeID) -> bool {
         match (self.ctx.get(lhs), self.ctx.get(rhs)) {
             (Type::Unit, _) => true, // check this is right
-            (Type::Int { .. }, Type::Int { .. }) => true,
-            (Type::Float(_), Type::Float(_)) => true,
             (Type::Bool, Type::Bool) => true,
             (Type::Slice(t1), Type::Slice(t2)) => self.subtype(t1, t2),
             (Type::Array { inner, len: _ }, Type::Slice(ty)) => self.subtype(inner, ty),
-            (Type::Adt(adt1), Type::Adt(adt2)) => {
-                if adt1.kind != adt2.kind {
-                    return false;
-                }
-
-                for (f1, f2) in izip!(adt1.fields, adt2.fields) {
-                    if let (Some(f1), Some(f2)) = (f1.ty, f2.ty) {
-                        if !self.subtype(f1, f2) {
-                            return false;
-                        }
-                    }
-                }
-
-                true
-            }
-            _ => false,
+            _ => self.eq(lhs, rhs),
         }
     }
 
@@ -186,28 +175,23 @@ impl<'ast> Sema<'ast> {
             },
 
             Node::Literal(lit) => match lit {
-                Literal::String(value) => Ok(self
-                    .ctx
-                    .alloc_array(Type::uint(IntSize::Bits8), value.len())),
+                Literal::String(_) => Ok(self.ctx.alloc(Type::Str)),
                 Literal::Int(_) => Ok(self.ctx.alloc(Type::int(IntSize::Bits32))),
                 Literal::Float(_) => Ok(self.ctx.alloc(Type::Float(FloatKind::F32))),
                 Literal::Bool(_) => Ok(self.ctx.alloc(Type::Bool)),
-                Literal::Struct { fields } => {
-                    let mut adt_fields = Vec::<Field>::new();
-                    for node in fields {
-                        adt_fields.push(Field {
-                            ident: self.get_ident(node.ident)?,
-                            ty: Some(self.infer(node.value)?),
+                Literal::Struct { fields: v } => {
+                    let mut fields = Vec::<Field>::new();
+                    for node in v {
+                        fields.push(Field {
+                            name: self.get_ident(node.ident)?,
+                            ty: self.infer(node.value)?,
                         });
                     }
 
-                    let adt = Adt {
-                        kind: AdtKind::Struct,
-                        fields: adt_fields,
+                    Ok(self.ctx.alloc(Type::Struct(Struct {
+                        fields,
                         typevariables: vec![],
-                    };
-
-                    Ok(self.ctx.alloc(Type::Adt(adt)))
+                    })))
                 }
             },
             Node::Ident(ident) => match self.scopes.get(ident.text) {
@@ -223,16 +207,14 @@ impl<'ast> Sema<'ast> {
                 let ident = self.get_ident(field)?;
 
                 match self.ctx.get(ty) {
-                    Type::Adt(Adt {
-                        kind: _,
+                    Type::Struct(Struct {
                         fields,
                         typevariables: _,
                     }) => {
-                        if let Some(Field { ident: _, ty }) =
-                            fields.iter().find(|f| f.ident == ident)
+                        if let Some(Field { name: _, ty }) = fields.iter().find(|f| f.name == ident)
                         {
-                            self.metadata.set(field, ty.unwrap());
-                            Ok(ty.unwrap())
+                            self.metadata.set(field, *ty);
+                            Ok(*ty)
                         } else {
                             Err(SemaError::Err("Doesnt have field".to_owned()))
                         }
@@ -352,28 +334,25 @@ impl<'ast> Sema<'ast> {
 
     fn term_to_ty(&mut self, term: Ref, _arguments: Option<Vec<Ref>>) -> Result<'ast, TypeID> {
         let ty = match self.ast.get(term) {
-            Node::StructType(fields) => {
-                let mut adt_fields = Vec::<Field>::new();
-                for node in fields {
-                    adt_fields.push(Field {
-                        ident: self.get_ident(node.ident)?,
-                        ty: Some(self.term_to_ty(node.ty, None)?),
+            Node::StructType(f) => {
+                let mut fields = Vec::<Field>::new();
+                for node in f {
+                    fields.push(Field {
+                        name: self.get_ident(node.ident)?,
+                        ty: self.term_to_ty(node.ty, None)?,
                     });
                 }
 
-                let adt = Adt {
-                    kind: AdtKind::Struct,
-                    fields: adt_fields,
+                self.ctx.alloc(Type::Struct(Struct {
+                    fields,
                     typevariables: vec![],
-                };
-
-                self.ctx.alloc(Type::Adt(adt))
+                }))
             }
-            Node::EnumType(variants) => {
-                let mut adt_fields = Vec::<Field>::new();
-                for node in variants {
-                    adt_fields.push(Field {
-                        ident: self.get_ident(node.ident)?,
+            Node::EnumType(v) => {
+                let mut variants = Vec::<Variant>::new();
+                for node in v {
+                    variants.push(Variant {
+                        name: self.get_ident(node.ident)?,
                         ty: if let Some(ty) = node.ty {
                             Some(self.term_to_ty(ty, None)?)
                         } else {
@@ -382,13 +361,10 @@ impl<'ast> Sema<'ast> {
                     });
                 }
 
-                let adt = Adt {
-                    kind: AdtKind::Struct,
-                    fields: adt_fields,
+                self.ctx.alloc(Type::Sum(Sum {
+                    variants,
                     typevariables: vec![],
-                };
-
-                self.ctx.alloc(Type::Adt(adt))
+                }))
             }
             Node::PtrType(inner) => {
                 let inner = self.term_to_ty(inner, None)?;
@@ -403,29 +379,11 @@ impl<'ast> Sema<'ast> {
                 self.ctx.alloc(Type::Array { inner, len })
             }
 
-            Node::Ident(token) => match token.text {
-                "void" => self.ctx.alloc(Type::Void),
-
-                "i8" => self.ctx.alloc(Type::int(IntSize::Bits8)),
-                "i16" => self.ctx.alloc(Type::int(IntSize::Bits16)),
-                "i32" => self.ctx.alloc(Type::int(IntSize::Bits32)),
-                "i64" => self.ctx.alloc(Type::int(IntSize::Bits64)),
-                "isize" => self.ctx.alloc(Type::int(IntSize::BitsPtr)),
-
-                "u8" => self.ctx.alloc(Type::uint(IntSize::Bits8)),
-                "u16" => self.ctx.alloc(Type::uint(IntSize::Bits16)),
-                "u32" => self.ctx.alloc(Type::uint(IntSize::Bits32)),
-                "u64" => self.ctx.alloc(Type::uint(IntSize::Bits64)),
-                "usize" => self.ctx.alloc(Type::uint(IntSize::BitsPtr)),
-
-                "f32" => self.ctx.alloc(Type::Float(FloatKind::F32)),
-                "f64" => self.ctx.alloc(Type::Float(FloatKind::F64)),
-
-                "bool" => self.ctx.alloc(Type::Bool),
-
-                text => match self.scopes.get(text) {
+            Node::Ident(token) => match Type::from_str(token.text) {
+                Some(ty) => self.ctx.alloc(ty),
+                None => match self.scopes.get(token.text) {
                     Some(Def::Type(ty)) => self.ctx.alloc(Type::Ref(ty)),
-                    _ => return Err(SemaError::NotDefined(text)),
+                    _ => return Err(SemaError::NotDefined(token.text)),
                 },
             },
             _ => return Err(SemaError::InvalidTerm(term)),
@@ -579,9 +537,7 @@ impl<'ast> Sema<'ast> {
             } => {
                 let ident = self.get_ident(ident)?;
 
-                if ident == "main" {
-                    
-                }
+                if ident == "main" {}
 
                 let returnty = self.term_to_ty(ret, None)?;
 
