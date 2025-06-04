@@ -6,7 +6,7 @@ mod frame;
 use crate::{
     ast::{ASTView, BinOp, Literal, Node, Ref, UnOp},
     scope::ScopeArena,
-    tast::{EntryPoint, TypeMetadata, TypedAST},
+    tast::{TypeMetadata, TypedAST},
     ty::{
         Enum, Field, FloatKind, FnType, IntSize, Struct, Sum, Type, TypeContext, TypeID, Variant,
     },
@@ -15,7 +15,6 @@ use crate::{
 pub use error::{Result, SemaError};
 use frame::Frame;
 use itertools::{Itertools, izip};
-use log::info;
 
 #[derive(Debug, Clone)]
 enum Def {
@@ -30,7 +29,6 @@ type Scope<'a> = ScopeArena<'a, Def>;
 pub struct Sema<'ast> {
     ast: ASTView<'ast>,
     scopes: Scope<'ast>,
-    entrypoint: Option<EntryPoint>,
 
     ctx: TypeContext<'ast>,
     callstack: Vec<Frame>,
@@ -44,7 +42,6 @@ impl<'ast> Sema<'ast> {
             ast,
             ctx: TypeContext::new(),
             scopes: Scope::new(),
-            entrypoint: None,
             callstack: vec![],
 
             metadata: TypeMetadata::new(ast),
@@ -327,8 +324,7 @@ impl<'ast> Sema<'ast> {
                 },
             ) => fromlen == intolen && self.can_cast(frominner, intoinner),
             (Type::Slice(fromty), Type::Slice(intoty)) => self.can_cast(fromty, intoty),
-            (l, r) if l == r => true,
-            _ => false,
+            _ => self.eq(from, into),
         }
     }
 
@@ -386,6 +382,11 @@ impl<'ast> Sema<'ast> {
                     _ => return Err(SemaError::NotDefined(token.text)),
                 },
             },
+
+            Node::TypeConstructor { ty, args } => {
+                todo!()
+            },
+            
             _ => return Err(SemaError::InvalidTerm(term)),
         };
 
@@ -424,8 +425,6 @@ impl<'ast> Sema<'ast> {
                 } else {
                     self.infer(value)?
                 };
-
-                info!("{:?}", self.ctx.get(ty));
 
                 let ident = self.get_ident(ident)?;
                 self.scopes.push(ident, Def::Const(ty));
@@ -537,8 +536,6 @@ impl<'ast> Sema<'ast> {
             } => {
                 let ident = self.get_ident(ident)?;
 
-                if ident == "main" {}
-
                 let returnty = self.term_to_ty(ret, None)?;
 
                 let parameters = {
@@ -611,7 +608,6 @@ impl<'ast> Sema<'ast> {
             root: self.ast.root,
             meta: self.metadata,
             context: self.ctx,
-            entrypoint: self.entrypoint,
         };
 
         (tast, errors)

@@ -1,5 +1,4 @@
 use derive_more::Display;
-use log::error;
 
 use crate::lexer::{Token, TokenType};
 
@@ -498,7 +497,7 @@ impl<'a> ASTView<'a> {
                 self.print(root, 0);
                 println!();
             }
-            None => error!("Error: AST has not been generated"),
+            None => eprintln!("Error: AST has not been generated"),
         }
     }
 }

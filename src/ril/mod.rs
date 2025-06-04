@@ -306,11 +306,17 @@ pub enum Func<'ctx: 'a, 'a> {
     },
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy)]
+enum EntryPoint {
+    None,
+    Exe(FuncIdx),
+}
+
 pub struct RIL<'ctx, 'a> {
     pub funcs: TiVec<FuncIdx, Func<'ctx, 'a>>,
+    pub entrypoint: EntryPoint,
     pub types: TiVec<TypeRef, TypeDef<'ctx>>,
-    pub ctx: TypeContext<'ctx>,
+    pub ctx: &'a TypeContext<'ctx>,
     pub arena: Bump,
 }
 
@@ -378,7 +384,7 @@ impl<'ctx, 'a> RIL<'ctx, 'a> {
             }
 
             if iter.peek().is_some() {
-                println!("");
+                println!();
             }
         }
     }

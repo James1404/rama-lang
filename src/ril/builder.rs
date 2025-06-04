@@ -15,8 +15,8 @@ use crate::{
 };
 
 use super::{
-    BasicBlock, BinOp, CFG, ConstKind, ExternParam, Func, FuncIdx, Loc, Operand, Param, Place, RIL,
-    RValue, Statement, Terminator, TypeDef, TypeRef, UnOp,
+    BasicBlock, BinOp, CFG, ConstKind, EntryPoint, ExternParam, Func, FuncIdx, Loc, Operand, Param,
+    Place, RIL, RValue, Statement, Terminator, TypeDef, TypeRef, UnOp,
 };
 
 struct BasicBlockBuilder<'a> {
@@ -85,10 +85,7 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
     fn get_place(&mut self, node: ast::Ref) -> Place<'ctx> {
         match self.builder.tast.get_node(node) {
             Node::Ident(ident) => self.scope.get(ident.text).unwrap(),
-            Node::FieldAccess(val, field) => {
-                let place = self.get_place(val);
-                place
-            }
+            Node::FieldAccess(val, field) => self.get_place(val),
             _ => panic!(),
         }
     }
@@ -173,11 +170,7 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
                 let value = self.eval_operand(bb, value);
                 let into = self.builder.tast.get_type_id(ty);
 
-                RValue::Cast {
-                    value,
-                    from,
-                    into,
-                }
+                RValue::Cast { value, from, into }
             }
             _ => RValue::Use(self.eval_operand(bb, node)),
         }
@@ -397,24 +390,25 @@ impl<'a> FunctionMapping<'a> {
 }
 
 pub struct Builder<'ctx: 'a, 'a> {
-    tast: TypedAST<'ctx>,
-    ctx: TypeContext<'ctx>,
+    tast: &'a TypedAST<'ctx>,
+    ctx: &'a TypeContext<'ctx>,
     func_mapping: FunctionMapping<'ctx>,
     funcs: TiVec<FuncIdx, Func<'ctx, 'a>>,
     types: TiVec<TypeRef, TypeDef<'ctx>>,
     arena: Bump,
+    entrypoint: EntryPoint,
 }
 
 impl<'ctx, 'a> Builder<'ctx, 'a> {
-    pub fn new(tast: TypedAST<'ctx>) -> Self {
-        let ctx = tast.context.clone();
+    pub fn new(tast: &'a TypedAST<'ctx>) -> Self {
         Self {
             tast,
-            ctx,
+            ctx: &tast.context,
             func_mapping: FunctionMapping::new(),
             funcs: ti_vec![],
             types: ti_vec![],
             arena: Bump::new(),
+            entrypoint: EntryPoint::None,
         }
     }
 
@@ -550,6 +544,7 @@ impl<'ctx, 'a> Builder<'ctx, 'a> {
 
         RIL {
             funcs: self.funcs,
+            entrypoint: self.entrypoint,
             types: self.types,
             ctx: self.ctx,
             arena: self.arena,

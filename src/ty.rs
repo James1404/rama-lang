@@ -1,9 +1,8 @@
 use std::fmt::Display;
 
+use bumpalo::Bump;
 use derive_more::Display;
 use itertools::izip;
-
-extern crate llvm_sys as llvm;
 
 #[derive(Debug, Clone, Copy, PartialEq, Display, Hash, Eq, PartialOrd, Ord)]
 pub struct TypeID(pub usize);
@@ -118,20 +117,25 @@ impl<'a> Type<'a> {
             "f64" => Some(Type::Float(FloatKind::F64)),
 
             "bool" => Some(Type::Bool),
+            "str" => Some(Type::Str),
 
             _ => None,
         }
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct TypeContext<'a> {
     pub data: Vec<Type<'a>>,
+    pub arena: Bump,
 }
 
 impl<'a> TypeContext<'a> {
     pub fn new() -> Self {
-        Self { data: vec![] }
+        Self {
+            data: vec![],
+            arena: Bump::new(),
+        }
     }
 
     pub fn alloc(&mut self, ty: Type<'a>) -> TypeID {
@@ -227,7 +231,7 @@ impl<'a> TypeContext<'a> {
                 }
 
                 true
-            },
+            }
 
             (Type::Ptr(lhs), Type::Ptr(rhs)) => self.eq(lhs, rhs),
 
@@ -239,11 +243,11 @@ impl<'a> TypeContext<'a> {
                 }
 
                 if !self.eq(lhs.return_ty, rhs.return_ty) {
-                    break 'outer false;                    
+                    break 'outer false;
                 }
 
                 true
-            },
+            }
 
             _ => false,
         }

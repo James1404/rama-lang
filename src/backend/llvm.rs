@@ -27,7 +27,6 @@ use llvm_sys::{
         LLVMRelocMode, LLVMTargetMachineEmitToFile, LLVMTargetRef,
     },
 };
-use log::{error, info};
 use typed_index_collections::{TiVec, ti_vec};
 
 trait IntoC<'a> {
@@ -86,8 +85,10 @@ impl<'a> IntoLLVM<'a> for Type<'a> {
                 Type::Float(FloatKind::F32) => LLVMFloatTypeInContext(extra.context),
                 Type::Float(FloatKind::F64) => LLVMDoubleTypeInContext(extra.context),
                 Type::Str => {
-                    let ty = LLVMInt8TypeInContext(extra.context);
-                    let mut elements = [ty, LLVMInt64TypeInContext(extra.context)];
+                    let mut elements = [
+                        LLVMPointerTypeInContext(extra.context, 0),
+                        LLVMInt64TypeInContext(extra.context),
+                    ];
 
                     LLVMStructTypeInContext(
                         extra.context,
@@ -96,9 +97,11 @@ impl<'a> IntoLLVM<'a> for Type<'a> {
                         false as _,
                     )
                 }
-                Type::Slice(inner) => {
-                    let ty = inner.into_llvm(extra);
-                    let mut elements = [ty, LLVMInt64TypeInContext(extra.context)];
+                Type::Slice(_) => {
+                    let mut elements = [
+                        LLVMPointerTypeInContext(extra.context, 0),
+                        LLVMInt64TypeInContext(extra.context),
+                    ];
 
                     LLVMStructTypeInContext(
                         extra.context,
@@ -363,6 +366,23 @@ impl<'a> CodeBuilder<'a> {
         }
     }
 
+    fn emit_named_struct(&mut self, name: &str, mut elements: Vec<*mut LLVMType>) {
+        unsafe {
+            let name = name.into_c();
+            let ptr = LLVMStructCreateNamed(self.context, name.as_ptr());
+            LLVMStructSetBody(ptr, elements.as_mut_ptr(), elements.len() as _, false as _);
+        }
+    }
+
+    fn emit_builtin_types(&mut self) {
+        self.emit_named_struct("str", unsafe {
+            vec![
+                LLVMInt64TypeInContext(self.context),
+                LLVMPointerTypeInContext(self.context, 0),
+            ]
+        });
+    }
+
     fn eval_rvalue(
         &mut self,
         builder: *mut LLVMBuilder,
@@ -584,23 +604,23 @@ impl<'a> CodeBuilder<'a> {
                             } else {
                                 LLVMBuildFPTrunc(builder, value, ty, name.as_ptr())
                             }
-                        },
+                        }
                         (Type::Int { signed: false, .. }, Type::Float(_)) => {
                             let name = "".into_c();
                             LLVMBuildUIToFP(builder, value, ty, name.as_ptr())
-                        },
+                        }
                         (Type::Int { signed: true, .. }, Type::Float(_)) => {
                             let name = "".into_c();
                             LLVMBuildSIToFP(builder, value, ty, name.as_ptr())
-                        },
+                        }
                         (Type::Float(_), Type::Int { signed: false, .. }) => {
                             let name = "".into_c();
                             LLVMBuildFPToUI(builder, value, ty, name.as_ptr())
-                        },
+                        }
                         (Type::Float(_), Type::Int { signed: true, .. }) => {
                             let name = "".into_c();
                             LLVMBuildFPToSI(builder, value, ty, name.as_ptr())
-                        },
+                        }
                         _ => panic!(),
                     }
                 }
@@ -886,6 +906,7 @@ impl<'a> CodeBuilder<'a> {
             }
         }
 
+        self.emit_builtin_types();
         self.emit_program_entrypoint();
 
         let target_machine = unsafe {
@@ -945,7 +966,6 @@ impl<'a> CodeBuilder<'a> {
         let passes = passes.into_c();
 
         unsafe { LLVMRunPasses(self.module, passes.as_ptr(), target_machine, builder) };
-
         unsafe { LLVMDumpModule(self.module) };
 
         let filename =

@@ -24,19 +24,11 @@ impl TypeMetadata {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum EntryPoint {
-    Exe(Ref),
-    Lib(Ref),
-}
-
-#[derive(Debug, Clone)]
 pub struct TypedAST<'a> {
     pub data: &'a [Node<'a>],
     pub root: Option<Ref>,
     pub meta: TypeMetadata,
     pub context: TypeContext<'a>,
-    pub entrypoint: Option<EntryPoint>,
 }
 
 impl<'a> TypedAST<'a> {

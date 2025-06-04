@@ -68,12 +68,10 @@ pub enum ParserError<'a> {
 
 impl<'a> ParserError<'a> {
     pub fn error(&self) {
-        use log::error;
-
         match self {
             ParserError::Many(errs) => errs.iter().for_each(|err| err.error()),
             ParserError::Msg { msg, token } => {
-                error!("[{}; {}] {}", token.pos.line, token.pos.offset, msg);
+                eprintln!("[{}; {}] {}", token.pos.line, token.pos.offset, msg);
             }
         }
     }
@@ -247,6 +245,8 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 }
 
                 if self.cursor.advance_if(TokenType::RBrace) {
+                    // TODO: Allow alternative "Vec2 { x: 5, y: 16 }"
+                    // syntax as opposed to .{ x: 5, y: 16 } inference
                     Ok(self.alloc(Node::Literal(Literal::Struct { fields })))
                 } else {
                     Err(ParserError::Msg {
@@ -935,13 +935,22 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
         if self.cursor.advance_if(TokenType::Import) {
             let current = self.cursor.current();
-            return match current.ty {
-                TokenType::String => Ok(self.advance_alloc(Node::Import(current.text))),
-                _ => Err(ParserError::Msg {
+            let ty = match current.ty {
+                TokenType::String => self.advance_alloc(Node::Import(current.text)),
+                _ => return Err(ParserError::Msg {
                     msg: "Import expects a path".to_owned(),
                     token,
-                }),
+                })
             };
+            
+            if !self.cursor.advance_if(TokenType::Semicolon) {
+                return Err(ParserError::Msg {
+                    msg: "Import must end with a semicolon".to_owned(),
+                    token,
+                });
+            }
+
+            return Ok(ty);
         }
 
         Err(ParserError::Msg {

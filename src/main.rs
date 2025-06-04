@@ -1,28 +1,37 @@
-use std::{fs, io, path::Path};
-
-#[macro_use]
-extern crate derive_more;
-
-use backend::Backend;
-use clap_complete::{Generator, Shell, generate};
-use lexer::Lexer;
-use metadata::Metadata;
-use parser::Parser;
-
-use clap::{Command, Parser as ClapParser, Subcommand};
-use sema::{Sema, SemaError};
-use log::error;
-
 mod ast;
 mod backend;
 mod lexer;
 mod metadata;
 mod parser;
-mod sema;
 mod ril;
+mod scope;
+mod sema;
 mod tast;
 mod ty;
-mod scope;
+
+use std::{
+    fs::{self, OpenOptions},
+    io,
+    path::Path,
+};
+
+#[macro_use]
+extern crate slog;
+extern crate slog_async;
+extern crate slog_term;
+
+#[macro_use]
+extern crate derive_more;
+
+use backend::Backend;
+use lexer::Lexer;
+use metadata::Metadata;
+use parser::Parser;
+use sema::{Sema, SemaError};
+
+use clap::{Command, Parser as ClapParser, Subcommand};
+use clap_complete::{Generator, Shell, generate};
+use slog::Drain;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "The Rama Compiler")]
@@ -46,9 +55,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Tests,
-    Compile {
-        file: String,
-    },
+    Compile { file: String },
 }
 
 fn compile<P>(path: P, cli: &Cli) -> io::Result<()>
@@ -58,7 +65,7 @@ where
     let src = std::fs::read_to_string(path.clone())?;
 
     let metadata = Metadata::new(path.as_ref(), Path::new("build/"))?;
-    
+
     let lexer = Lexer::new(&src);
     let tokens = lexer.run();
 
@@ -100,15 +107,15 @@ where
         return Ok(());
     }
 
-    let builder = ril::Builder::new(tast);
+    let builder = ril::Builder::new(&tast);
     let ril = builder.build();
 
     ril.pretty_print();
 
     println!("<== Starting CodeGen ==>");
     match backend::compile(ril, metadata, cli.backend) {
-        Ok(_) => {},
-        Err(err) => error!("{}", err),
+        Ok(_) => {}
+        Err(err) => eprintln!("{}", err),
     }
 
     Ok(())
@@ -143,8 +150,6 @@ fn print_completions<G: Generator>(generator: G, cmd: &mut Command) {
 }
 
 fn main() -> io::Result<()> {
-    env_logger::init();
-
     let cli = Cli::parse();
 
     match &cli.command {

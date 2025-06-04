@@ -32,6 +32,7 @@
 
               cargo-udeps
               clippy
+              tokei
             ];
 
             RUST_BACKTRACE = "1";
