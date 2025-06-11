@@ -33,6 +33,8 @@
               cargo-udeps
               clippy
               tokei
+
+              aflplusplus
             ];
 
             RUST_BACKTRACE = "1";

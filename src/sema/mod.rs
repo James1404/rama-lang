@@ -7,9 +7,7 @@ use crate::{
     ast::{ASTView, BinOp, Literal, Node, Ref, UnOp},
     scope::ScopeArena,
     tast::{TypeMetadata, TypedAST},
-    ty::{
-        Enum, Field, FloatKind, FnType, IntSize, Struct, Sum, Type, TypeContext, TypeID, Variant,
-    },
+    ty::{Field, FloatKind, FnType, IntSize, Struct, Sum, Type, TypeContext, TypeID, Variant},
 };
 
 pub use error::{Result, SemaError};
@@ -54,10 +52,8 @@ impl<'ast> Sema<'ast> {
 
     fn subtype(&self, lhs: TypeID, rhs: TypeID) -> bool {
         match (self.ctx.get(lhs), self.ctx.get(rhs)) {
-            (Type::Unit, _) => true, // check this is right
+            (Type::Unit, Type::Unit) => true, // check this is right
             (Type::Bool, Type::Bool) => true,
-            (Type::Slice(t1), Type::Slice(t2)) => self.subtype(t1, t2),
-            (Type::Array { inner, len: _ }, Type::Slice(ty)) => self.subtype(inner, ty),
             _ => self.eq(lhs, rhs),
         }
     }
@@ -245,18 +241,6 @@ impl<'ast> Sema<'ast> {
                     Err(SemaError::Err("".to_owned()))
                 }
             }
-            Node::Block { stmts, result } => {
-                for stmt in stmts {
-                    self.eval(stmt)?;
-                }
-
-                if let Some(result) = result {
-                    let ty = self.infer(result)?;
-                    Ok(ty)
-                } else {
-                    Ok(self.ctx.alloc(Type::Unit))
-                }
-            }
 
             Node::IfElse { cond, t, f } => {
                 let b = self.ctx.alloc(Type::Bool);
@@ -281,8 +265,6 @@ impl<'ast> Sema<'ast> {
                 let t = self.infer(term)?;
                 Ok(self.ctx.alloc(Type::Ptr(t)))
             }
-
-            Node::Comptime(term) => self.infer(term),
 
             Node::Cast { value, ty } => {
                 let term_ty = self.infer(value)?;
@@ -384,9 +366,11 @@ impl<'ast> Sema<'ast> {
             },
 
             Node::TypeConstructor { ty, args } => {
-                todo!()
-            },
-            
+                let ty = self.term_to_ty(ty, None)?;
+
+                ty
+            }
+
             _ => return Err(SemaError::InvalidTerm(term)),
         };
 
@@ -403,7 +387,7 @@ impl<'ast> Sema<'ast> {
 
     fn eval(&mut self, node: Ref) -> Result<'ast, ()> {
         match self.ast.get(node) {
-            Node::VarDecl { ident, ty, value } => {
+            Node::LetDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
                     let ty = self.term_to_ty(ty, None)?;
                     self.check(value, ty)?;
@@ -458,6 +442,13 @@ impl<'ast> Sema<'ast> {
                     None => return Err(SemaError::FunctionDoesNotHaveReturnType),
                 }
             }
+            Node::Block(stmts) => {
+                self.scopes.down();
+                for stmt in stmts {
+                    self.eval(stmt)?;
+                }
+                self.scopes.up();
+            }
             _ => {
                 self.infer(node)?;
             }
@@ -468,7 +459,7 @@ impl<'ast> Sema<'ast> {
 
     fn eval_toplevel(&mut self, node: Ref) -> Result<'ast, ()> {
         match self.ast.get(node) {
-            Node::VarDecl { ident, ty, value } => {
+            Node::LetDecl { ident, ty, value } => {
                 let ty = if let Some(ty) = ty {
                     let ty = self.term_to_ty(ty, None)?;
                     self.check(value, ty)?;
@@ -513,7 +504,7 @@ impl<'ast> Sema<'ast> {
 
                 let ty = self.ctx.alloc(Type::Fn(FnType {
                     parameters,
-                    return_ty: returnty,
+                    return_ty: Some(returnty),
                 }));
 
                 self.scopes.push(ident, Def::Fn(ty));
@@ -536,7 +527,11 @@ impl<'ast> Sema<'ast> {
             } => {
                 let ident = self.get_ident(ident)?;
 
-                let returnty = self.term_to_ty(ret, None)?;
+                let returnty = if let Some(ret) = ret {
+                    Some(self.term_to_ty(ret, None)?)
+                } else {
+                    None
+                };
 
                 let parameters = {
                     let mut vec = Vec::<(&'ast str, TypeID)>::new();
@@ -564,7 +559,7 @@ impl<'ast> Sema<'ast> {
                 }
 
                 self.callstack.push(Frame {
-                    return_type: Some(returnty),
+                    return_type: returnty,
                 });
 
                 self.eval(block)?;

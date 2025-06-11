@@ -111,17 +111,14 @@ pub enum Node<'a> {
     Ident(Token<'a>),
 
     TopLevelScope(Vec<Ref>),
-    Block {
-        stmts: Vec<Ref>,
-        result: Option<Ref>,
-    },
+    Block(Vec<Ref>),
 
     ConstDecl {
         ident: Ref,
         ty: Option<Ref>,
         value: Ref,
     },
-    VarDecl {
+    LetDecl {
         ident: Ref,
         ty: Option<Ref>,
         value: Ref,
@@ -141,7 +138,7 @@ pub enum Node<'a> {
     FnDecl {
         ident: Ref,
         params: Vec<Param>,
-        ret: Ref,
+        ret: Option<Ref>,
         block: Ref,
     },
     FnCall {
@@ -313,14 +310,9 @@ impl<'a> ASTView<'a> {
                     self.print(node, indentation + 1);
                 }
             }
-            Node::Block { stmts, result } => {
+            Node::Block(stmts) => {
                 for node in stmts {
                     self.print(node, indentation + 1);
-                }
-
-                out!(indentation + 1, "result:");
-                if let Some(result) = result {
-                    self.print(result, indentation + 2);
                 }
             }
             Node::ConstDecl { ident, ty, value } => {
@@ -330,7 +322,7 @@ impl<'a> ASTView<'a> {
                 }
                 self.print(value, indentation + 1);
             }
-            Node::VarDecl { ident, ty, value } => {
+            Node::LetDecl { ident, ty, value } => {
                 self.print(ident, indentation + 1);
                 if let Some(ty) = ty {
                     self.print(ty, indentation + 1);
@@ -342,11 +334,7 @@ impl<'a> ASTView<'a> {
                 self.print(value, indentation + 1);
             }
 
-            Node::ExternFnDecl {
-                ident,
-                params,
-                ret,
-            } => {
+            Node::ExternFnDecl { ident, params, ret } => {
                 self.print(ident, indentation + 1);
 
                 out!(indentation + 1, "Params:");
@@ -356,8 +344,7 @@ impl<'a> ASTView<'a> {
                     self.print(node.ty, indentation + 3);
                 }
                 self.print(ret, indentation + 1);
-
-            },
+            }
 
             Node::FnDecl {
                 ident,
@@ -373,7 +360,11 @@ impl<'a> ASTView<'a> {
                     self.print(node.ident, indentation + 3);
                     self.print(node.ty, indentation + 3);
                 }
-                self.print(ret, indentation + 1);
+
+                if let Some(ret) = ret {
+                    self.print(ret, indentation + 1);
+                }
+
                 self.print(block, indentation + 1);
             }
             Node::FnCall { func, args } => {
@@ -401,7 +392,7 @@ impl<'a> ASTView<'a> {
                 self.print(t, indentation + 1);
                 self.print(f, indentation + 1);
             }
-            
+
             Node::Match { value, branches } => {
                 self.print(value, indentation + 1);
                 for node in branches {

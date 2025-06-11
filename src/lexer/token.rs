@@ -53,11 +53,16 @@ pub enum TokenType {
     Arrow,
 
     // Keywords
+    Begin,
+    End,
+
+    If,
+    Then,
+    Else,        
+
     True,
     False,
 
-    If,
-    Else,
 
     For,
     While,
@@ -67,6 +72,7 @@ pub enum TokenType {
 
     Const,
     Var,
+    Let,
 
     And,
     Or,
@@ -96,11 +102,15 @@ pub struct Token<'a> {
 }
 
 pub static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
-    "true" => TokenType::True,
-    "false" => TokenType::False,
+    "begin" => TokenType::Begin,
+    "end" => TokenType::End,
 
     "if" => TokenType::If,
+    "then" => TokenType::Then,
     "else" => TokenType::Else,
+
+    "true" => TokenType::True,
+    "false" => TokenType::False,
 
     "for" => TokenType::For,
     "while" => TokenType::While,
@@ -110,6 +120,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
 
     "const" => TokenType::Const,
     "var" => TokenType::Var,
+    "let" => TokenType::Let,
 
     "and" => TokenType::And,
     "or" => TokenType::Or,

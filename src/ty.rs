@@ -57,7 +57,7 @@ pub enum IntSize {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnType<'a> {
     pub parameters: Vec<(&'a str, TypeID)>,
-    pub return_ty: TypeID,
+    pub return_ty: Option<TypeID>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +83,9 @@ pub enum Type<'a> {
     Fn(FnType<'a>),
 
     Ref(TypeID),
+
+    Existential,
+    Universal,
 }
 
 impl<'a> Type<'a> {
@@ -242,11 +245,10 @@ impl<'a> TypeContext<'a> {
                     }
                 }
 
-                if !self.eq(lhs.return_ty, rhs.return_ty) {
-                    break 'outer false;
+                match (lhs.return_ty, rhs.return_ty) {
+                    (Some(lhs), Some(rhs)) if !self.eq(lhs, rhs) => false,
+                    _ => true,
                 }
-
-                true
             }
 
             _ => false,
@@ -332,9 +334,18 @@ impl<'a> Display for TypeFmt<'a> {
                     }
                 }
 
-                write!(f, ") {}", self.ctx.display(return_ty))
+                write!(f, ")")?;
+
+                if let Some(ret) = return_ty {
+                    write!(f, " -> {}", self.ctx.display(ret))?;
+                }
+
+                Ok(())
             }
             Type::Ref(ty) => write!(f, "Ref({}, {})", ty.0, self.ctx.display(ty)),
+
+            Type::Existential => write!(f, "Existential"),
+            Type::Universal => write!(f, "Universal"),
         }
     }
 }

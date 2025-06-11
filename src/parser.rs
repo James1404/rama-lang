@@ -41,6 +41,14 @@ impl<'a> Cursor<'a> {
         self.current().ty == expected
     }
 
+    fn matches_many(self, expected: &[TokenType]) -> bool {
+        if self.eof() {
+            return false;
+        }
+
+        expected.contains(&self.current().ty)
+    }
+
     fn advance_if(&mut self, expected: TokenType) -> bool {
         if self.eof() {
             return false;
@@ -49,6 +57,24 @@ impl<'a> Cursor<'a> {
         match self.tokens.get(self.position) {
             Some(tok) => {
                 if tok.ty == expected {
+                    self.position += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            None => false,
+        }
+    }
+
+    fn advance_if_many(&mut self, expected: &[TokenType]) -> bool {
+        if self.eof() {
+            return false;
+        }
+
+        match self.tokens.get(self.position) {
+            Some(tok) => {
+                if expected.contains(&tok.ty) {
                     self.position += 1;
                     true
                 } else {
@@ -195,10 +221,6 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             TokenType::True => Ok(self.advance_alloc(Node::Literal(ast::Literal::Bool(true)))),
             TokenType::False => Ok(self.advance_alloc(Node::Literal(ast::Literal::Bool(false)))),
 
-            TokenType::If => self.parse_if(),
-
-            TokenType::Comptime => self.parse_comptime(),
-
             TokenType::LParen => {
                 self.cursor.advance();
                 let expr = self.parse_expr()?;
@@ -255,8 +277,6 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                     })
                 }
             }
-
-            TokenType::LBrace => self.parse_block(),
 
             _ => {
                 return Err(ParserError::Msg {
@@ -532,10 +552,10 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
         })
     }
 
-    fn parse_var(&mut self) -> Result<'tokens, Ref> {
+    fn parse_let(&mut self) -> Result<'tokens, Ref> {
         let token = self.cursor.current();
 
-        if self.cursor.advance_if(TokenType::Var) {
+        if self.cursor.advance_if(TokenType::Let) {
             let ident = self.parse_ident()?;
 
             let ty = if self.cursor.advance_if(TokenType::Colon) {
@@ -548,10 +568,10 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 let value = self.parse_expr()?;
 
                 return if self.cursor.advance_if(TokenType::Semicolon) {
-                    Ok(self.alloc(Node::VarDecl { ident, ty, value }))
+                    Ok(self.alloc(Node::LetDecl { ident, ty, value }))
                 } else {
                     Err(ParserError::Msg {
-                        msg: "Expected semicolon after var statement".to_owned(),
+                        msg: "Expected semicolon after let statement".to_owned(),
                         token,
                     })
                 };
@@ -559,7 +579,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
         }
 
         Err(ParserError::Msg {
-            msg: "Failed to parse var statement".to_owned(),
+            msg: "Failed to parse let statement".to_owned(),
             token,
         })
     }
@@ -679,86 +699,76 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
         })
     }
 
-    fn parse_block(&mut self) -> Result<'tokens, Ref> {
+    fn parse_stmt(&mut self) -> Result<'tokens, Ref> {
         let token = self.cursor.current();
 
-        if !self.cursor.advance_if(TokenType::LBrace) {
-            return Err(ParserError::Msg {
-                msg: "Block needs opening brace".to_owned(),
-                token,
-            });
-        }
+        match token.ty {
+            TokenType::Const => self.parse_const(),
+            TokenType::Let => self.parse_let(),
+            TokenType::Return => {
+                self.cursor.advance();
 
-        let mut stmts = Vec::<Result<Ref>>::new();
-        let mut result = Option::<Ref>::None;
-
-        while !self.cursor.matches(TokenType::RBrace) {
-            let token = self.cursor.current();
-
-            match token.ty {
-                TokenType::Const => {
-                    stmts.push(self.parse_const());
-                }
-                TokenType::Var => {
-                    stmts.push(self.parse_var());
-                }
-                TokenType::Return => {
-                    self.cursor.advance();
-
-                    if self.cursor.advance_if(TokenType::Semicolon) {
-                        stmts.push(Ok(self.alloc(Node::ReturnNone)));
-                    } else {
-                        let expr = self.parse_expr()?;
-                        if self.cursor.advance_if(TokenType::Semicolon) {
-                            stmts.push(Ok(self.alloc(Node::Return(expr))));
-                        } else {
-                            stmts.push(Err(ParserError::Msg {
-                                msg: "Expected semicolon after return statement".to_owned(),
-                                token,
-                            }));
-                        }
-                    }
-                }
-                TokenType::Defer => {
-                    self.cursor.advance();
+                if self.cursor.advance_if(TokenType::Semicolon) {
+                    Ok(self.alloc(Node::ReturnNone))
+                } else {
                     let expr = self.parse_expr()?;
-                    stmts.push(Ok(self.alloc(Node::Defer(expr))));
-                }
-                TokenType::Import => {
-                    stmts.push(self.parse_import());
-                }
-                TokenType::Type => {
-                    stmts.push(self.parse_type_stmt());
-                }
-                TokenType::Interface => {
-                    stmts.push(self.parse_interface());
-                }
-                TokenType::Fn => {
-                    stmts.push(self.parse_fn_stmt());
-                }
-                _ => {
-                    let expr = self.parse_expr()?;
-
-                    let expr = if self.cursor.advance_if(TokenType::Equal) {
-                        let value = self.parse_expr()?;
-                        self.alloc(Node::Assignment { ident: expr, value })
-                    } else {
-                        expr
-                    };
-
                     if self.cursor.advance_if(TokenType::Semicolon) {
-                        stmts.push(Ok(expr));
+                        Ok(self.alloc(Node::Return(expr)))
                     } else {
-                        result = Some(expr);
-                        break;
+                        Err(ParserError::Msg {
+                            msg: "Expected semicolon after return statement".to_owned(),
+                            token,
+                        })
                     }
                 }
             }
+            TokenType::Defer => {
+                self.cursor.advance();
+                let expr = self.parse_expr()?;
+                Ok(self.alloc(Node::Defer(expr)))
+            }
+            TokenType::Import => self.parse_import(),
+            TokenType::Type => self.parse_type_stmt(),
+            TokenType::Interface => self.parse_interface(),
+            TokenType::Fn => self.parse_fn_stmt(),
+
+            TokenType::If => self.parse_if(),
+            TokenType::Begin => self.parse_block(),
+
+            _ => {
+                let expr = self.parse_expr()?;
+
+                let expr = if self.cursor.advance_if(TokenType::Equal) {
+                    let value = self.parse_expr()?;
+                    self.alloc(Node::Assignment { ident: expr, value })
+                } else {
+                    expr
+                };
+
+                if !self.cursor.advance_if(TokenType::Semicolon) {
+                    return Err(ParserError::Msg {
+                        msg: "Statement must end with a semicolon".to_owned(),
+                        token,
+                    });
+                }
+
+                Ok(expr)
+            }
+        }
+    }
+
+    fn parse_block_end(&mut self, end: TokenType) -> Result<'tokens, Ref> {
+        let token = self.cursor.current();
+
+        let mut stmts = Vec::<Result<Ref>>::new();
+
+        while !self.cursor.matches(end) {
+            stmts.push(self.parse_stmt());
         }
 
-        if !self.cursor.advance_if(TokenType::RBrace) {
+        if !self.cursor.advance_if(end) {
             return Err(ParserError::Msg {
-                msg: "Expected closing brace at end of statement".to_owned(),
+                msg: format!("Expected \"{end}\" keyword at end of block").to_owned(),
                 token,
             });
         }
@@ -770,7 +780,43 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             .collect_vec();
 
         if errors.is_empty() {
-            Ok(self.alloc(Node::Block { stmts, result }))
+            Ok(self.alloc(Node::Block(stmts)))
+        } else {
+            Err(ParserError::Many(errors))
+        }
+    }
+
+    fn parse_block(&mut self) -> Result<'tokens, Ref> {
+        let token = self.cursor.current();
+
+        if !self.cursor.advance_if(TokenType::Begin) {
+            return Err(ParserError::Msg {
+                msg: "Block needs begin keyword".to_owned(),
+                token,
+            });
+        }
+
+        let mut stmts = Vec::<Result<Ref>>::new();
+
+        while !self.cursor.matches(TokenType::End) {
+            stmts.push(self.parse_stmt());
+        }
+
+        if !self.cursor.advance_if(TokenType::End) {
+            return Err(ParserError::Msg {
+                msg: "Expected \"end\" keyword at end of block".to_owned(),
+                token,
+            });
+        }
+
+        let mut errors = vec![];
+        let stmts = stmts
+            .into_iter()
+            .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
+            .collect_vec();
+
+        if errors.is_empty() {
+            Ok(self.alloc(Node::Block(stmts)))
         } else {
             Err(ParserError::Many(errors))
         }
@@ -826,16 +872,37 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 });
             }
 
-            let ret = self.parse_type_expr()?;
+            let ret = if self.cursor.advance_if(TokenType::Arrow) {
+                Some(self.parse_type_expr()?)
+            } else {
+                None
+            };
 
-            if !self.cursor.matches(TokenType::LBrace) {
-                return Err(ParserError::Msg {
-                    msg: "Function decleration requires a code block".to_owned(),
-                    token,
-                });
-            }
+            let block = {
+                let mut stmts = Vec::<Result<Ref>>::new();
 
-            let block = self.parse_block()?;
+                while !self.cursor.matches(TokenType::End) {
+                    stmts.push(self.parse_stmt());
+                }
+
+                if !self.cursor.advance_if(TokenType::End) {
+                    return Err(ParserError::Msg {
+                        msg: "Function decleration must finish with the \"end\" keyword".to_owned(),
+                        token,
+                    });
+                }
+
+                let mut errors = vec![];
+                let stmts = stmts
+                    .into_iter()
+                    .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
+                    .collect_vec();
+
+                if !errors.is_empty() {
+                    return Err(ParserError::Many(errors));
+                }
+                self.alloc(Node::Block(stmts))
+            };
 
             return Ok(self.alloc(Node::FnDecl {
                 ident,
@@ -923,11 +990,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             });
         }
 
-        Ok(self.alloc(Node::ExternFnDecl {
-            ident,
-            params,
-            ret,
-        }))
+        Ok(self.alloc(Node::ExternFnDecl { ident, params, ret }))
     }
 
     fn parse_import(&mut self) -> Result<'tokens, Ref> {
@@ -937,12 +1000,14 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             let current = self.cursor.current();
             let ty = match current.ty {
                 TokenType::String => self.advance_alloc(Node::Import(current.text)),
-                _ => return Err(ParserError::Msg {
-                    msg: "Import expects a path".to_owned(),
-                    token,
-                })
+                _ => {
+                    return Err(ParserError::Msg {
+                        msg: "Import expects a path".to_owned(),
+                        token,
+                    });
+                }
             };
-            
+
             if !self.cursor.advance_if(TokenType::Semicolon) {
                 return Err(ParserError::Msg {
                     msg: "Import must end with a semicolon".to_owned(),
@@ -968,14 +1033,51 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
             }
 
             let cond = self.parse_expr()?;
-            let t = self.parse_block()?;
 
-            return if self.cursor.advance_if(TokenType::Else) {
-                let f = self.parse_block()?;
-                Ok(self.alloc(Node::IfElse { cond, t, f }))
-            } else {
-                Ok(self.alloc(Node::If { cond, block: t }))
-            };
+            if !self.cursor.advance_if(TokenType::Then) {
+                return Err(ParserError::Msg {
+                    msg: "If statement must have \"then\" after it's condition".to_owned(),
+                    token,
+                });
+            }
+
+            let t = {
+                let mut stmts = Vec::<Result<Ref>>::new();
+
+                let endings = &[TokenType::Else, TokenType::End];
+
+                while !self.cursor.matches_many(endings) {
+                    stmts.push(self.parse_stmt());
+                }
+
+                if !self.cursor.advance_if_many(endings) {
+                    panic!();
+                }
+
+                let mut errors = vec![];
+                let stmts = stmts
+                    .into_iter()
+                    .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
+                    .collect_vec();
+
+                if errors.is_empty() {
+                    Ok(self.alloc(Node::Block(stmts)))
+                } else {
+                    Err(ParserError::Many(errors))
+                }
+            }?;
+
+            match self.cursor.current().ty {
+                TokenType::Else => {
+                    let f = self.parse_block_end(TokenType::End)?;
+                    Ok(self.alloc(Node::IfElse { cond, t, f }))
+                }
+                TokenType::End => Ok(self.alloc(Node::If { cond, block: t })),
+                _ => Err(ParserError::Msg {
+                    msg: "".to_owned(),
+                    token,
+                }),
+            }
         }
 
         Err(ParserError::Msg {
@@ -989,7 +1091,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
 
         match token.ty {
             TokenType::Const => self.parse_const(),
-            TokenType::Var => self.parse_var(),
+            TokenType::Let => self.parse_let(),
             TokenType::Import => self.parse_import(),
             TokenType::Type => self.parse_type_stmt(),
             TokenType::Interface => self.parse_interface(),

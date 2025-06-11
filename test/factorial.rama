@@ -1,11 +1,7 @@
-fn factorial(n: i32) i32 {
-   if n == 0 {
-      1
-   } else {
-      factorial(n - 1)
-   }
-}
+fn factorial(n: i32) -> i32
+   if n == 0 then 1 else factorial(n - 1) end
+end
 
-fn main() void {
+fn main()
    factorial(25);
-}
+end

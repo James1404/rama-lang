@@ -146,6 +146,7 @@ impl<'a> IntoLLVM<'a> for Type<'a> {
                     LLVMFunctionType(return_ty, parameters.as_mut_ptr(), parameters.len() as _, 0)
                 }
                 Type::Ref(_) => todo!(),
+                Type::Existential | Type::Universal => todo!(),
             }
         }
     }
@@ -233,6 +234,7 @@ impl<'a> IntoLLVM<'a> for TypeID {
                     LLVMFunctionType(return_ty, parameters.as_mut_ptr(), parameters.len() as _, 0)
                 }
                 Type::Ref(_) => todo!(),
+                Type::Existential | Type::Universal => todo!(),
             }
         }
     }

@@ -262,7 +262,7 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
 
     fn eval_fn_stmt(&mut self, bb: &mut BasicBlockBuilder<'ctx>, node: ast::Ref) {
         match self.builder.tast.get_node(node) {
-            Node::VarDecl {
+            Node::LetDecl {
                 ident,
                 ty: _,
                 value,

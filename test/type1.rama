@@ -1,7 +1,9 @@
-type person = struct { age: i32; };
+type person = struct
+     age: i32;
+end
 
-fn read(filename: str) i32 {
-   var nathan: person = .{ age: 19 };
+fn read(filename: str) -> i32
+   let nathan: person = .{ age: 19 };
    nathan.age = 20;
 
    const name = filename;
@@ -10,4 +12,4 @@ fn read(filename: str) i32 {
    const b = a * 2;
 
    return b;
-}
+end

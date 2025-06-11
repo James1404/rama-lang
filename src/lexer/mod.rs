@@ -30,6 +30,14 @@ impl<'a> Lexer<'a> {
         self.src[self.position.current]
     }
 
+    fn peek(&self) -> Option<u8> {
+        if self.position.current + 1 < self.src.len() {
+            Some(self.src[self.position.current + 1])
+        } else {
+            None
+        }
+    }
+
     fn append(&mut self, ty: TokenType) {
         let text = match std::str::from_utf8(&self.src[self.position.start..self.position.current])
         {
@@ -104,7 +112,17 @@ impl<'a> Lexer<'a> {
                 b';' => self.append_single(TokenType::Semicolon),
 
                 b'+' => self.append_single_or_next(b'=', TokenType::PlusEq, TokenType::Plus),
-                b'-' => self.append_single_or_next(b'=', TokenType::MinusEq, TokenType::Minus),
+                b'-' => match self.peek() {
+                    Some(b'=') => {
+                        self.advance();
+                        self.append_single(TokenType::MinusEq)
+                    }
+                    Some(b'>') => {
+                        self.advance();
+                        self.append_single(TokenType::Arrow)
+                    }
+                    _ => self.append_single(TokenType::Minus),
+                },
                 b'*' => self.append_single_or_next(b'=', TokenType::MulEq, TokenType::Asterix),
 
                 b'/' => {
