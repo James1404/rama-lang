@@ -206,26 +206,15 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
                     Type::Fn(ty) => ty,
                     _ => panic!(),
                 };
-                let dest = self.make_place(ty.return_ty);
-                bb.append(Statement::Assign(dest, RValue::Call(func.0, args)));
 
-                dest
-            }
+                if let Some(return_ty) = ty.return_ty {
+                    let dest = self.make_place(return_ty);
+                    bb.append(Statement::Assign(dest, RValue::Call(func.0, args)));
 
-            Node::Block { stmts, result } => {
-                for stmt in stmts {
-                    self.eval_fn_stmt(bb, stmt);
-                }
-
-                if let Some(result) = result {
-                    self.eval_expr(bb, result)
-                } else {
-                    let dest = self.make_place(self.builder.tast.get_type_id(node));
-                    bb.append(Statement::Assign(
-                        dest,
-                        RValue::Use(Operand::Const(ConstKind::Unit)),
-                    ));
                     dest
+                } else {
+                    bb.append(Statement::Expression(RValue::Call(func.0, args)));
+                    Place(0, &[])
                 }
             }
 
@@ -333,6 +322,12 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
                         f: end.loc,
                     },
                 );
+            }
+
+            Node::Block(stmts) => {
+                for stmt in stmts {
+                    self.eval_fn_stmt(bb, stmt);
+                }
             }
 
             Node::ReturnNone => {
@@ -455,16 +450,9 @@ impl<'ctx, 'a> Builder<'ctx, 'a> {
 
                     let mut bb = cfg.make_block();
                     match self.tast.get_node(block) {
-                        Node::Block { stmts, result } => {
+                        Node::Block(stmts) => {
                             for stmt in stmts {
                                 cfg.eval_fn_stmt(&mut bb, stmt);
-                            }
-
-                            if let Some(result) = result {
-                                let result = cfg.eval_expr(&mut bb, result);
-                                cfg.terminate(bb, Terminator::Return(Operand::Copy(result)));
-                            } else {
-                                cfg.terminate(bb, Terminator::ReturnNone);
                             }
                         }
                         _ => panic!(),

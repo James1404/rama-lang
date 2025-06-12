@@ -10,7 +10,7 @@ mod tast;
 mod ty;
 
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io,
     path::Path,
 };
@@ -31,7 +31,6 @@ use sema::{Sema, SemaError};
 
 use clap::{Command, Parser as ClapParser, Subcommand};
 use clap_complete::{Generator, Shell, generate};
-use slog::Drain;
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "The Rama Compiler")]

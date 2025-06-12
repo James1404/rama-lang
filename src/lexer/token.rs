@@ -1,8 +1,9 @@
 use crate::lexer::position::Position;
 use phf::phf_map;
 use strum_macros::IntoStaticStr;
+use derive_more::Display;
 
-#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, Display)]
 pub enum TokenType {
     // Values
     String,

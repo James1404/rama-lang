@@ -62,8 +62,6 @@ pub struct FnType<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type<'a> {
-    Void,
-
     Unit,
 
     Bool,
@@ -102,8 +100,6 @@ impl<'a> Type<'a> {
 
     pub fn from_str(ident: &str) -> Option<Type<'a>> {
         match ident {
-            "void" => Some(Type::Void),
-
             "i8" => Some(Type::int(IntSize::Bits8)),
             "i16" => Some(Type::int(IntSize::Bits16)),
             "i32" => Some(Type::int(IntSize::Bits32)),
@@ -165,7 +161,6 @@ impl<'a> TypeContext<'a> {
 
     pub fn eq(&self, lhs: TypeID, rhs: TypeID) -> bool {
         match (self.get(lhs), self.get(rhs)) {
-            (Type::Void, Type::Void) => true,
             (Type::Unit, Type::Unit) => true,
 
             (Type::Bool, Type::Bool) => true,
@@ -265,7 +260,6 @@ pub struct TypeFmt<'a> {
 impl<'a> Display for TypeFmt<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.ctx.get(self.ty) {
-            Type::Void => write!(f, "void"),
             Type::Unit => write!(f, "unit"),
             Type::Bool => write!(f, "bool"),
             Type::Int { size, signed } => write!(

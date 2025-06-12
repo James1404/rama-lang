@@ -143,6 +143,7 @@ pub enum RValue<'a> {
 #[derive(Debug, Clone)]
 pub enum Statement<'a> {
     Assign(Place<'a>, RValue<'a>),
+    Expression(RValue<'a>),
 }
 
 #[derive(Debug, Clone, Display)]
@@ -295,13 +296,13 @@ pub struct Param<'ctx: 'a, 'a> {
 pub enum Func<'ctx: 'a, 'a> {
     Extern {
         name: &'ctx str,
-        return_ty: TypeID,
+        return_ty: Option<TypeID>,
         params: Vec<ExternParam<'a>>,
     },
     Decl {
         name: &'ctx str,
         cfg: CFG<'a>,
-        return_ty: TypeID,
+        return_ty: Option<TypeID>,
         params: Vec<Param<'ctx, 'a>>,
     },
 }
@@ -344,7 +345,11 @@ impl<'ctx, 'a> RIL<'ctx, 'a> {
                         }
                     }
 
-                    println!(") -> {}", self.ctx.display(*return_ty));
+                    println!(")");
+
+                    if let Some(ty) = return_ty {
+                        println!(" -> {}", self.ctx.display(*ty));
+                    }
                 }
                 Func::Decl {
                     name,
@@ -352,7 +357,7 @@ impl<'ctx, 'a> RIL<'ctx, 'a> {
                     return_ty,
                     params,
                 } => {
-                    print!("{} {}(", self.ctx.display(*return_ty), name);
+                    print!("fn {}(", name);
 
                     let mut iter = params.iter().peekable();
                     while let Some(param) = iter.next() {
@@ -362,7 +367,13 @@ impl<'ctx, 'a> RIL<'ctx, 'a> {
                         }
                     }
 
-                    println!(") {{");
+                    println!(")");
+
+                    if let Some(ty) = return_ty {
+                        println!(" -> {}", self.ctx.display(*ty));
+                    }
+
+                    println!(" {{");
 
                     for (idx, bb) in cfg.blocks.iter_enumerated() {
                         println!("bb.{}:", idx.0);
@@ -372,6 +383,9 @@ impl<'ctx, 'a> RIL<'ctx, 'a> {
                             match stmt {
                                 Statement::Assign(place, rvalue) => {
                                     println!("{place} = {};", rvalue.display(self));
+                                }
+                                Statement::Expression(rvalue) => {
+                                    println!("{};", rvalue.display(self));
                                 }
                             }
                         }

@@ -1067,7 +1067,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                 }
             }?;
 
-            match self.cursor.current().ty {
+            return match self.cursor.current().ty {
                 TokenType::Else => {
                     let f = self.parse_block_end(TokenType::End)?;
                     Ok(self.alloc(Node::IfElse { cond, t, f }))
@@ -1077,7 +1077,7 @@ impl<'tokens, 'parser> Parser<'tokens, 'parser> {
                     msg: "".to_owned(),
                     token,
                 }),
-            }
+            };
         }
 
         Err(ParserError::Msg {

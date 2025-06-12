@@ -67,7 +67,6 @@ impl<'a> IntoLLVM<'a> for Type<'a> {
     fn into_llvm(self, extra: Self::Extra) -> Self::Item {
         unsafe {
             match self {
-                Type::Void => LLVMVoidTypeInContext(extra.context),
                 Type::Unit => LLVMArrayType2(LLVMInt8TypeInContext(extra.context), 0),
                 Type::Bool => LLVMInt8TypeInContext(extra.context),
                 Type::Int { size, signed } => match (signed, size) {
@@ -141,7 +140,10 @@ impl<'a> IntoLLVM<'a> for Type<'a> {
                         .collect_vec()
                         .into_boxed_slice();
 
-                    let return_ty = return_ty.into_llvm(extra);
+                    let return_ty = match return_ty {
+                        Some(ty) => ty.into_llvm(extra),
+                        _ => LLVMVoidTypeInContext(extra.context),
+                    };
 
                     LLVMFunctionType(return_ty, parameters.as_mut_ptr(), parameters.len() as _, 0)
                 }
@@ -159,7 +161,6 @@ impl<'a> IntoLLVM<'a> for TypeID {
     fn into_llvm(self, extra: Self::Extra) -> Self::Item {
         unsafe {
             match extra.ril.ctx.get(self) {
-                Type::Void => LLVMVoidTypeInContext(extra.context),
                 Type::Unit => LLVMArrayType2(LLVMInt8TypeInContext(extra.context), 0),
                 Type::Bool => LLVMInt8TypeInContext(extra.context),
                 Type::Int { size, signed } => match (signed, size) {
@@ -229,7 +230,10 @@ impl<'a> IntoLLVM<'a> for TypeID {
                         .collect_vec()
                         .into_boxed_slice();
 
-                    let return_ty = return_ty.into_llvm(extra);
+                    let return_ty = match return_ty {
+                        Some(ty) => ty.into_llvm(extra),
+                        _ => LLVMVoidTypeInContext(extra.context),
+                    };
 
                     LLVMFunctionType(return_ty, parameters.as_mut_ptr(), parameters.len() as _, 0)
                 }
