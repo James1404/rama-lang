@@ -175,7 +175,11 @@ impl<'ctx, 'a> Display for RValueDisplay<'ctx, 'a> {
             RValue::Use(val) => write!(f, "{val}"),
             RValue::BinaryOp(op, lhs, rhs, _) => write!(f, "{lhs} {op} {rhs}"),
             RValue::UnaryOp(op, val, _) => write!(f, "{op}{val}"),
-            RValue::Cast { value, from: _, into } => write!(f, "{value} as {}", self.ril.ctx.display(*into)),
+            RValue::Cast {
+                value,
+                from: _,
+                into,
+            } => write!(f, "{value} as {}", self.ril.ctx.display(*into)),
             RValue::Ref(val) => write!(f, "&{val}"),
             RValue::Call(func, args) => {
                 write!(
@@ -296,13 +300,13 @@ pub struct Param<'ctx: 'a, 'a> {
 pub enum Func<'ctx: 'a, 'a> {
     Extern {
         name: &'ctx str,
-        return_ty: Option<TypeID>,
+        return_ty: TypeID,
         params: Vec<ExternParam<'a>>,
     },
     Decl {
         name: &'ctx str,
         cfg: CFG<'a>,
-        return_ty: Option<TypeID>,
+        return_ty: TypeID,
         params: Vec<Param<'ctx, 'a>>,
     },
 }
@@ -346,10 +350,7 @@ impl<'ctx, 'a> RIL<'ctx, 'a> {
                     }
 
                     println!(")");
-
-                    if let Some(ty) = return_ty {
-                        println!(" -> {}", self.ctx.display(*ty));
-                    }
+                    println!(" -> {}", self.ctx.display(*return_ty));
                 }
                 Func::Decl {
                     name,
@@ -368,10 +369,7 @@ impl<'ctx, 'a> RIL<'ctx, 'a> {
                     }
 
                     println!(")");
-
-                    if let Some(ty) = return_ty {
-                        println!(" -> {}", self.ctx.display(*ty));
-                    }
+                    println!(" -> {}", self.ctx.display(*return_ty));
 
                     println!(" {{");
 

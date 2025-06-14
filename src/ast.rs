@@ -1,46 +1,13 @@
 use derive_more::Display;
+use std::fmt::Display;
 
 use crate::lexer::{Token, TokenType};
 
 #[derive(Debug, Clone, Copy, Display)]
-pub struct Ref(pub usize);
-
-#[derive(Debug, Clone)]
-pub struct LiteralStructField {
-    pub ident: Ref,
-    pub value: Ref,
-}
-
-#[derive(Debug, Clone)]
-pub enum Literal<'a> {
-    Float(&'a str),
-    Int(&'a str),
-    String(&'a str),
-    Bool(bool),
-    Struct { fields: Vec<LiteralStructField> },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct StructField {
-    pub ident: Ref,
-    pub ty: Ref,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct EnumVariant {
-    pub ident: Ref,
-    pub ty: Option<Ref>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Param {
-    pub ident: Ref,
-    pub ty: Ref,
-}
-
-#[derive(Debug, Clone, Copy, Display)]
 pub enum UnOp {
+    #[display("!")]
     Not,
+    #[display("-")]
     Negate,
 }
 
@@ -57,18 +24,26 @@ impl From<TokenType> for UnOp {
 
 #[derive(Debug, Clone, Copy, Display)]
 pub enum BinOp {
-    Invalid,
-
+    #[display("+")]
     Add,
+    #[display("-")]
     Sub,
+    #[display("*")]
     Mul,
+    #[display("/")]
     Div,
 
+    #[display("<")]
     Less,
+    #[display("<=")]
     LessEq,
+    #[display(">")]
     Greater,
+    #[display(">=")]
     GreaterEq,
+    #[display("==")]
     Eq,
+    #[display("!=")]
     NotEq,
 }
 
@@ -88,407 +63,488 @@ impl From<TokenType> for BinOp {
             TokenType::EqualEqual => Self::Eq,
             TokenType::NotEqual => Self::NotEq,
 
-            _ => Self::Invalid,
+            _ => panic!(),
         }
     }
 }
 
-#[derive(Debug, Clone, strum_macros::IntoStaticStr)]
-pub enum Node<'a> {
-    None,
+impl BinOp {
+    pub fn precedence(self) -> i32 {
+        use BinOp::*;
 
+        match self {
+            Add => 1,
+            Sub => 2,
+            Mul => 3,
+            Div => 4,
+            Less | LessEq | Greater | GreaterEq | Eq | NotEq => 4,
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+#[display("{_0}")]
+pub struct Ident<'a>(pub Token<'a>);
+
+#[derive(Debug, Display)]
+#[display("{ident}: {value}")]
+pub struct LiteralRecordField<'a> {
+    pub ident: Ident<'a>,
+    pub value: Expr<'a>,
+}
+
+#[derive(Debug, Display)]
+#[display("{ident}: {ty}")]
+pub struct RecordField<'a> {
+    pub ident: Ident<'a>,
+    pub ty: Type<'a>,
+}
+
+#[derive(Debug)]
+pub struct EnumVariant<'a> {
+    pub ident: Ident<'a>,
+    pub ty: Option<Type<'a>>,
+}
+
+#[derive(Debug, Display)]
+#[display("{ident}: {ty}")]
+pub struct Param<'a> {
+    pub ident: Ident<'a>,
+    pub ty: Type<'a>,
+}
+
+#[derive(Debug)]
+pub enum Value<'a> {
+    Ident(Ident<'a>),
+    Float(&'a str),
+    Int(&'a str),
+    String(&'a str),
+    Bool(bool),
+    Record {
+        fields: Vec<LiteralRecordField<'a>>,
+    },
+
+    Call {
+        func: Box<Expr<'a>>,
+        args: Vec<Expr<'a>>,
+    },
+
+    FieldAccess {
+        value: Box<Expr<'a>>,
+        field: Ident<'a>,
+    },
+    Index {
+        value: Box<Expr<'a>>,
+        index: usize,
+    },
+
+    Ref(Box<Expr<'a>>),
+    Deref(Box<Expr<'a>>),
+}
+
+#[derive(Debug)]
+pub enum Expr<'a> {
+    Value(Value<'a>),
     Binary {
-        lhs: Ref,
-        rhs: Ref,
+        lhs: Box<Expr<'a>>,
         op: BinOp,
+        rhs: Box<Expr<'a>>,
     },
     Unary {
-        value: Ref,
-        op: UnOp,
+        op: BinOp,
+        value: Box<Expr<'a>>,
     },
-
-    Literal(Literal<'a>),
-    Ident(Token<'a>),
-
-    TopLevelScope(Vec<Ref>),
-    Block(Vec<Ref>),
-
-    ConstDecl {
-        ident: Ref,
-        ty: Option<Ref>,
-        value: Ref,
+    Assign {
+        lhs: Box<Expr<'a>>,
+        value: Box<Expr<'a>>,
     },
-    LetDecl {
-        ident: Ref,
-        ty: Option<Ref>,
-        value: Ref,
-    },
-
-    Assignment {
-        ident: Ref,
-        value: Ref,
-    },
-
-    ExternFnDecl {
-        ident: Ref,
-        params: Vec<Param>,
-        ret: Ref,
-    },
-
-    FnDecl {
-        ident: Ref,
-        params: Vec<Param>,
-        ret: Option<Ref>,
-        block: Ref,
-    },
-    FnCall {
-        func: Ref,
-        args: Vec<Ref>,
-    },
-
-    Import(&'a str),
-
-    ReturnNone,
-    Return(Ref),
-
-    Dot {
-        lhs: Ref,
-        ident: Ref,
-    },
-
-    If {
-        cond: Ref,
-        block: Ref,
-    },
-
-    IfElse {
-        cond: Ref,
-        t: Ref,
-        f: Ref,
-    },
-
-    Match {
-        value: Ref,
-        branches: Vec<Ref>,
-    },
-    MatchBranch {
-        pattern: Ref,
-        value: Ref,
-    },
-
-    Type {
-        ident: Ref,
-        args: Vec<Ref>,
-        body: Ref,
-    },
-
-    StructType(Vec<StructField>),
-    EnumType(Vec<EnumVariant>),
-
-    TypeConstructor {
-        ty: Ref,
-        args: Vec<Ref>,
-    },
-
-    FnType {
-        params: Ref,
-        ret: Ref,
-        external_linkage: bool,
-    },
-    DistinctType(Ref),
-    PtrType(Ref),
-    SliceType(Ref),
-    ArrayType(Ref, usize),
-
-    Interface {
-        ident: Ref,
-        fields: Vec<StructField>,
-    },
-
-    Index(Ref, Ref),
-    FieldAccess(Ref, Ref),
-
-    Reference(Ref),
-    Dereference(Ref),
-
-    Comptime(Ref),
-    Defer(Ref),
 
     Cast {
-        value: Ref,
-        ty: Ref,
+        value: Box<Expr<'a>>,
+        ty: Type<'a>,
     },
 }
 
-#[derive(Clone)]
+#[derive(Debug)]
+pub enum Type<'a> {
+    Ident(Ident<'a>),
+    Record(Vec<RecordField<'a>>),
+    Enum(Vec<EnumVariant<'a>>),
+    Fn {
+        params: Vec<Box<Type<'a>>>,
+        ret: Option<Box<Type<'a>>>,
+        external_linkage: bool,
+    },
+    Ptr(Box<Type<'a>>),
+    Slice(Box<Type<'a>>),
+    Array(Box<Type<'a>>, usize),
+}
+
+#[derive(Debug)]
+pub struct Block<'a>(pub Vec<Statement<'a>>);
+
+#[derive(Debug)]
+pub struct ConstDecl<'a> {
+    pub ident: Ident<'a>,
+    pub ty: Option<Type<'a>>,
+    pub value: Expr<'a>,
+}
+
+#[derive(Debug)]
+pub struct LetDecl<'a> {
+    pub ident: Ident<'a>,
+    pub ty: Option<Type<'a>>,
+    pub value: Expr<'a>,
+}
+
+#[derive(Debug)]
+pub struct ExternFn<'a> {
+    pub ident: Ident<'a>,
+    pub params: Vec<Param<'a>>,
+    pub ret: Option<Type<'a>>,
+}
+
+#[derive(Debug)]
+pub struct Fn<'a> {
+    pub ident: Ident<'a>,
+    pub params: Vec<Param<'a>>,
+    pub ret: Option<Type<'a>>,
+    pub block: Block<'a>,
+}
+
+#[derive(Debug)]
+pub struct If<'a> {
+    pub cond: Expr<'a>,
+    pub then: Block<'a>,
+    pub otherwise: Option<Block<'a>>,
+}
+
+#[derive(Debug)]
+pub struct MatchBranch<'a> {
+    pub pattern: Expr<'a>,
+    pub value: Expr<'a>,
+}
+
+#[derive(Debug)]
+pub struct Match<'a> {
+    pub value: Expr<'a>,
+    pub branches: Vec<MatchBranch<'a>>,
+}
+
+#[derive(Debug, Display)]
+#[display("import \"{_0}\"")]
+pub struct Import<'a>(pub &'a str);
+
+#[derive(Debug)]
+pub enum Statement<'a> {
+    ConstDecl(ConstDecl<'a>),
+    LetDecl(LetDecl<'a>),
+
+    If(If<'a>),
+    Match(Match<'a>),
+
+    Block(Block<'a>),
+    Expr(Expr<'a>),
+
+    Return(Expr<'a>),
+    ReturNone,
+}
+
+#[derive(Debug)]
+pub enum TopLevelStatement<'a> {
+    ConstDecl(ConstDecl<'a>),
+    LetDecl(LetDecl<'a>),
+
+    Type { ident: Ident<'a>, inner: Type<'a> },
+
+    ExternFn(ExternFn<'a>),
+    Fn(Fn<'a>),
+
+    Import(Import<'a>),
+}
+
+#[derive(Debug)]
 pub struct AST<'a> {
-    data: Vec<Node<'a>>,
-    pub root: Option<Ref>,
+    pub statements: Vec<TopLevelStatement<'a>>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ASTView<'a> {
-    pub data: &'a [Node<'a>],
-    pub root: Option<Ref>,
-}
-
-impl<'a> AST<'a> {
-    pub fn new() -> Self {
-        Self {
-            data: vec![],
-            root: None,
+impl Display for EnumVariant<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.ident)?;
+        if let Some(ty) = &self.ty {
+            write!(f, ": {ty}")?;
         }
-    }
 
-    pub fn to_view(&'a self) -> ASTView<'a> {
-        ASTView {
-            data: self.data.as_slice(),
-            root: self.root,
-        }
-    }
-
-    pub fn alloc(&mut self, node: Node<'a>) -> Ref {
-        let index = self.data.len();
-        self.data.push(node);
-        Ref(index)
+        Ok(())
     }
 }
 
-impl<'a> ASTView<'a> {
-    pub fn get(self, handle: Ref) -> Node<'a> {
-        self.data[handle.0].clone()
-    }
+impl Display for Value<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Value::*;
+        match self {
+            Ident(ident) => write!(f, "{ident}"),
+            Float(v) => write!(f, "{v}"),
+            Int(v) => write!(f, "{v}"),
+            String(v) => write!(f, "\"{v}\""),
+            Bool(v) => write!(f, "{v}"),
+            Record { fields } => {
+                writeln!(f, "{{")?;
 
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
+                for field in fields {
+                    writeln!(f, "{field};")?;
+                }
 
-    fn print(self, handle: Ref, indentation: usize) {
-        macro_rules! out {
-            ($indentation:expr, $($arg:tt)*) => {{
-                print!("{}", "\t".repeat($indentation));
-                println!($($arg)*);
-            }}
-        }
-
-        out!(
-            indentation,
-            "{}:",
-            Into::<&'static str>::into(self.get(handle))
-        );
-
-        match self.get(handle) {
-            Node::None => {}
-
-            Node::Binary { lhs, rhs, op } => {
-                out!(indentation + 1, "{}", op);
-                self.print(lhs, indentation + 1);
-                self.print(rhs, indentation + 1);
-            }
-            Node::Unary { value, op } => {
-                out!(indentation + 1, "{}", op);
-                self.print(value, indentation + 1);
+                write!(f, "}}")
             }
 
-            Node::Literal(lit) => match lit {
-                Literal::Float(val) => out!(indentation + 1, "float({})", val),
-                Literal::Int(val) => out!(indentation + 1, "int({})", val),
-                Literal::String(val) => out!(indentation + 1, "string({})", val),
-                Literal::Bool(val) => out!(indentation + 1, "bool({})", val),
-                Literal::Struct { fields } => {
-                    for field in fields {
-                        out!(indentation + 1, "field");
-                        self.print(field.ident, indentation + 2);
-                        self.print(field.value, indentation + 2);
+            Call { func, args } => {
+                write!(f, "{func}")?;
+                write!(f, "(")?;
+
+                let mut iter = args.iter().peekable();
+                while let Some(arg) = iter.next() {
+                    write!(f, "{arg}")?;
+
+                    if iter.peek().is_some() {
+                        write!(f, ", ")?;
                     }
                 }
-            },
 
-            Node::Ident(token) => out!(indentation + 1, "{}", token.text),
-            Node::TopLevelScope(items) => {
-                for node in items {
-                    self.print(node, indentation + 1);
-                }
-            }
-            Node::Block(stmts) => {
-                for node in stmts {
-                    self.print(node, indentation + 1);
-                }
-            }
-            Node::ConstDecl { ident, ty, value } => {
-                self.print(ident, indentation + 1);
-                if let Some(ty) = ty {
-                    self.print(ty, indentation + 1);
-                }
-                self.print(value, indentation + 1);
-            }
-            Node::LetDecl { ident, ty, value } => {
-                self.print(ident, indentation + 1);
-                if let Some(ty) = ty {
-                    self.print(ty, indentation + 1);
-                }
-                self.print(value, indentation + 1);
-            }
-            Node::Assignment { ident, value } => {
-                self.print(ident, indentation + 1);
-                self.print(value, indentation + 1);
+                write!(f, ")")
             }
 
-            Node::ExternFnDecl { ident, params, ret } => {
-                self.print(ident, indentation + 1);
+            FieldAccess { value, field } => write!(f, "{value}.{field}"),
+            Index { value, index } => write!(f, "{value}[{index}]"),
 
-                out!(indentation + 1, "Params:");
-                for node in params {
-                    out!(indentation + 2, "Param:");
-                    self.print(node.ident, indentation + 3);
-                    self.print(node.ty, indentation + 3);
+            Ref(value) => write!(f, "&{value}"),
+            Deref(value) => write!(f, "*{value}"),
+        }
+    }
+}
+
+impl Display for Expr<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Expr::*;
+
+        match self {
+            Value(value) => write!(f, "{value}"),
+            Binary { lhs, op, rhs } => write!(f, "{lhs} {op} {rhs}"),
+            Unary { op, value } => write!(f, "{op}{value}"),
+            Assign { lhs, value } => write!(f, "{lhs} = {value}"),
+            Cast { value, ty } => write!(f, "{value} as {ty}"),
+        }
+    }
+}
+
+impl Display for Type<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Type::*;
+
+        match self {
+            Ident(ident) => write!(f, "{ident}"),
+            Record(fields) => {
+                writeln!(f, "record")?;
+
+                for field in fields {
+                    writeln!(f, "\t{field}")?;
                 }
-                self.print(ret, indentation + 1);
+
+                write!(f, "end")
             }
+            Enum(variants) => {
+                writeln!(f, "enum")?;
 
-            Node::FnDecl {
-                ident,
-                params,
-                ret,
-                block,
-            } => {
-                self.print(ident, indentation + 1);
-
-                out!(indentation + 1, "Params:");
-                for node in params {
-                    out!(indentation + 2, "Param:");
-                    self.print(node.ident, indentation + 3);
-                    self.print(node.ty, indentation + 3);
+                for v in variants {
+                    writeln!(f, "\t{v}")?;
                 }
 
-                if let Some(ret) = ret {
-                    self.print(ret, indentation + 1);
-                }
-
-                self.print(block, indentation + 1);
+                write!(f, "end")
             }
-            Node::FnCall { func, args } => {
-                self.print(func, indentation + 1);
-
-                for node in args {
-                    self.print(node, indentation + 1);
-                }
-            }
-            Node::Import(path) => {
-                out!(indentation + 1, "{}", path);
-            }
-            Node::ReturnNone => {}
-            Node::Return(value) => self.print(value, indentation + 1),
-            Node::Dot { lhs, ident } => {
-                self.print(lhs, indentation + 1);
-                self.print(ident, indentation + 1);
-            }
-            Node::If { cond, block } => {
-                self.print(cond, indentation + 1);
-                self.print(block, indentation + 1);
-            }
-            Node::IfElse { cond, t, f } => {
-                self.print(cond, indentation + 1);
-                self.print(t, indentation + 1);
-                self.print(f, indentation + 1);
-            }
-
-            Node::Match { value, branches } => {
-                self.print(value, indentation + 1);
-                for node in branches {
-                    self.print(node, indentation + 1);
-                }
-            }
-            Node::MatchBranch { pattern, value } => {
-                self.print(pattern, indentation + 1);
-                self.print(value, indentation + 1);
-            }
-
-            Node::Type { ident, args, body } => {
-                self.print(ident, indentation + 1);
-
-                out!(indentation + 1, "type parameters: ");
-                for node in args {
-                    self.print(node, indentation + 2);
-                }
-                self.print(body, indentation + 1);
-            }
-            Node::StructType(fields) => {
-                for node in fields {
-                    self.print(node.ident, indentation + 1);
-                    self.print(node.ty, indentation + 1);
-                }
-            }
-            Node::EnumType(variants) => {
-                for node in variants {
-                    self.print(node.ident, indentation + 1);
-                    if let Some(ty) = node.ty {
-                        self.print(ty, indentation + 1);
-                    }
-                }
-            }
-            Node::TypeConstructor { ty, args } => {
-                self.print(ty, indentation + 1);
-                for node in args {
-                    self.print(node, indentation + 1);
-                }
-            }
-
-            Node::FnType {
+            Fn {
                 params,
                 ret,
                 external_linkage,
             } => {
-                self.print(params, indentation + 1);
-                self.print(ret, indentation + 1);
-                print!("Extern: {}", external_linkage);
-            }
-            Node::DistinctType(value) => self.print(value, indentation + 1),
-            Node::PtrType(value) => self.print(value, indentation + 1),
-            Node::SliceType(value) => self.print(value, indentation + 1),
-            Node::ArrayType(value, len) => {
-                self.print(value, indentation + 1);
-                out!(indentation + 1, "len: {}", len);
-            }
-
-            Node::Interface { ident, fields } => {
-                self.print(ident, indentation + 1);
-                for node in fields {
-                    self.print(node.ident, indentation + 1);
-                    self.print(node.ty, indentation + 1);
+                if *external_linkage {
+                    write!(f, "extern ")?;
                 }
-            }
 
-            Node::Index(value, index) => {
-                self.print(value, indentation + 1);
-                self.print(index, indentation + 1);
-            }
-            Node::FieldAccess(value, field) => {
-                self.print(value, indentation + 1);
-                self.print(field, indentation + 1);
-            }
+                write!(f, "fn(")?;
 
-            Node::Reference(value) => self.print(value, indentation + 1),
-            Node::Dereference(value) => self.print(value, indentation + 1),
+                let mut iter = params.iter().peekable();
+                while let Some(param) = iter.next() {
+                    write!(f, "{param}")?;
 
-            Node::Comptime(value) => self.print(value, indentation + 1),
-            Node::Defer(value) => self.print(value, indentation + 1),
+                    if iter.peek().is_some() {
+                        write!(f, ", ")?;
+                    }
+                }
 
-            Node::Cast { value, ty } => {
-                self.print(value, indentation + 1);
-                self.print(ty, indentation + 1);
+                write!(f, ")")?;
+
+                if let Some(ret) = ret {
+                    write!(f, " -> {ret}")?;
+                }
+
+                Ok(())
             }
+            Ptr(ty) => write!(f, "*{ty}"),
+            Slice(ty) => write!(f, "[{ty}]"),
+            Array(ty, len) => write!(f, "[{ty}; {len}]"),
         }
     }
+}
 
-    pub fn pretty_print(self) {
-        match self.root {
-            Some(root) => {
-                println!("<== Printing AST ==>");
-                self.print(root, 0);
-                println!();
-            }
-            None => eprintln!("Error: AST has not been generated"),
+impl Display for Block<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for s in &self.0 {
+            writeln!(f, "\t{s}")?;
         }
+
+        Ok(())
+    }
+}
+
+impl Display for ConstDecl<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "const {}", self.ident)?;
+
+        if let Some(ty) = &self.ty {
+            write!(f, ": {ty}")?;
+        }
+
+        write!(f, " = {};", self.value)
+    }
+}
+
+impl Display for LetDecl<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "let {}", self.ident)?;
+
+        if let Some(ty) = &self.ty {
+            write!(f, ": {ty}")?;
+        }
+
+        write!(f, " = {};", self.value)
+    }
+}
+
+impl Display for ExternFn<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "extern fn {}(", self.ident)?;
+
+        let mut iter = self.params.iter().peekable();
+        while let Some(param) = iter.next() {
+            write!(f, "{param}")?;
+
+            if iter.peek().is_some() {
+                write!(f, ", ")?;
+            }
+        }
+
+        write!(f, ")")?;
+
+        if let Some(ret) = &self.ret {
+            write!(f, " -> {ret}")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Display for Fn<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fn {}(", self.ident)?;
+
+        let mut iter = self.params.iter().peekable();
+        while let Some(param) = iter.next() {
+            write!(f, "{param}")?;
+
+            if iter.peek().is_some() {
+                write!(f, ", ")?;
+            }
+        }
+
+        write!(f, ")")?;
+
+        if let Some(ret) = &self.ret {
+            write!(f, " -> {ret}")?;
+        }
+
+        writeln!(f, "")?;
+
+        write!(f, "{}", self.block)?;
+
+        write!(f, "end")
+    }
+}
+
+impl Display for If<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "if {} then", self.cond)?;
+
+        write!(f, "{}", self.then)?;
+
+        if let Some(otherwise) = &self.otherwise {
+            writeln!(f, "else")?;
+            write!(f, "{}", otherwise)?;
+        }
+
+        writeln!(f, "end")
+    }
+}
+
+impl Display for Match<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl Display for MatchBranch<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl Display for Statement<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Statement::*;
+
+        match self {
+            ConstDecl(v) => writeln!(f, "{v}"),
+            LetDecl(v) => writeln!(f, "{v}"),
+            If(v) => writeln!(f, "{v}"),
+            Match(v) => writeln!(f, "{v}"),
+            Block(block) => writeln!(f, "{block}"),
+            Expr(expr) => writeln!(f, "{expr};"),
+            Return(expr) => writeln!(f, "return {expr};"),
+            ReturNone => writeln!(f, "return;"),
+        }
+    }
+}
+
+impl Display for TopLevelStatement<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use TopLevelStatement::*;
+
+        match self {
+            ConstDecl(v) => writeln!(f, "{v}"),
+            LetDecl(v) => writeln!(f, "{v}"),
+            Type { ident, inner } => writeln!(f, "type {ident} is {inner}"),
+            ExternFn(v) => writeln!(f, "{v}"),
+            Fn(v) => writeln!(f, "{v}"),
+            Import(v) => writeln!(f, "{v}"),
+        }
+    }
+}
+
+impl Display for AST<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for stmt in &self.statements {
+            writeln!(f, "{stmt}")?;
+        }
+
+        Ok(())
     }
 }

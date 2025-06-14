@@ -1,33 +1,16 @@
 mod ast;
-mod backend;
 mod lexer;
 mod metadata;
 mod parser;
-mod ril;
-mod scope;
-mod sema;
-mod tast;
-mod ty;
 
-use std::{
-    fs,
-    io,
-    path::Path,
-};
-
-#[macro_use]
-extern crate slog;
-extern crate slog_async;
-extern crate slog_term;
+use std::{fs, io, path::Path};
 
 #[macro_use]
 extern crate derive_more;
 
-use backend::Backend;
 use lexer::Lexer;
 use metadata::Metadata;
 use parser::Parser;
-use sema::{Sema, SemaError};
 
 use clap::{Command, Parser as ClapParser, Subcommand};
 use clap_complete::{Generator, Shell, generate};
@@ -46,9 +29,8 @@ struct Cli {
     print_tokens: bool,
     #[arg(long)]
     print_ast: bool,
-
-    #[arg(short, long, value_enum, default_value_t = Backend::LLVM)]
-    backend: Backend,
+    // #[arg(short, long, value_enum, default_value_t = Backend::LLVM)]
+    // backend: Backend,
 }
 
 #[derive(Subcommand)]
@@ -84,39 +66,38 @@ where
             return Ok(());
         }
     };
-    let astview = ast.to_view();
 
     if cli.print_ast {
-        astview.pretty_print();
+        println!("{ast}");
     }
 
-    let sema = Sema::new(astview);
-    let (tast, errors) = sema.run();
-
-    for error in &errors {
-        match error {
-            SemaError::InvalidTerm(term) => {
-                println!("Error: [InvalidTerm] {:#?}", astview.get(*term))
-            }
-            SemaError::Err(msg) => println!("Error: {}", msg),
-            _ => println!("Error: {}", error),
-        }
-    }
-    if !errors.is_empty() {
-        return Ok(());
-    }
-
-    let builder = ril::Builder::new(&tast);
-    let ril = builder.build();
-
-    ril.pretty_print();
-
-    println!("<== Starting CodeGen ==>");
-    match backend::compile(ril, metadata, cli.backend) {
-        Ok(_) => {}
-        Err(err) => eprintln!("{}", err),
-    }
-
+    //    let sema = Sema::new(astview);
+    //    let (tast, errors) = sema.run();
+    //
+    //    for error in &errors {
+    //        match error {
+    //            SemaError::InvalidTerm(term) => {
+    //                println!("Error: [InvalidTerm] {:#?}", astview.get(*term))
+    //            }
+    //            SemaError::Err(msg) => println!("Error: {}", msg),
+    //            _ => println!("Error: {}", error),
+    //        }
+    //    }
+    //    if !errors.is_empty() {
+    //        return Ok(());
+    //    }
+    //
+    //    let builder = ril::Builder::new(&tast);
+    //    let ril = builder.build();
+    //
+    //    ril.pretty_print();
+    //
+    //    println!("<== Starting CodeGen ==>");
+    //    match backend::compile(ril, metadata, cli.backend) {
+    //        Ok(_) => {}
+    //        Err(err) => eprintln!("{}", err),
+    //    }
+    //
     Ok(())
 }
 

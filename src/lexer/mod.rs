@@ -91,6 +91,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn eof(&self) -> bool {
+        self.position.current >= self.src.len()
+    }
+
     pub fn run(mut self) -> Vec<Token<'a>> {
         while self.position.current < self.src.len() {
             self.position.start = self.position.current;
@@ -104,7 +108,7 @@ impl<'a> Lexer<'a> {
                 b']' => self.append_single(TokenType::RBracket),
 
                 b'.' => {
-                    self.append_single_or_next(b'{', TokenType::StructConstructor, TokenType::Dot)
+                    self.append_single_or_next(b'{', TokenType::RecordConstructor, TokenType::Dot)
                 }
                 b',' => self.append_single(TokenType::Comma),
 
@@ -170,7 +174,7 @@ impl<'a> Lexer<'a> {
 
                     let mut ty = TokenType::Int;
 
-                    loop {
+                    while !self.eof() {
                         match self.current() {
                             b'.' => ty = TokenType::Float,
                             c if c.is_ascii_digit() => {}
@@ -185,7 +189,7 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_alphabetic() || c == b'_' => {
                     self.advance();
 
-                    loop {
+                    while !self.eof() {
                         match self.current() {
                             b'_' => {}
                             c if c.is_ascii_alphanumeric() => {}

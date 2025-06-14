@@ -34,7 +34,7 @@ pub struct Sum<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Struct<'a> {
+pub struct Record<'a> {
     pub fields: Vec<Field<'a>>,
     pub typevariables: Vec<TypeVariable>,
 }
@@ -57,7 +57,7 @@ pub enum IntSize {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnType<'a> {
     pub parameters: Vec<(&'a str, TypeID)>,
-    pub return_ty: Option<TypeID>,
+    pub return_ty: TypeID,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,7 +73,7 @@ pub enum Type<'a> {
     Array { inner: TypeID, len: usize },
 
     Enum(Enum<'a>),
-    Struct(Struct<'a>),
+    Record(Record<'a>),
     Sum(Sum<'a>),
 
     Ptr(TypeID),
@@ -190,7 +190,7 @@ impl<'a> TypeContext<'a> {
             ) => self.eq(lhs, rhs) && llen == rlen,
 
             (Type::Enum(lhs), Type::Enum(rhs)) => lhs == rhs,
-            (Type::Struct(lhs), Type::Struct(rhs)) => 'outer: {
+            (Type::Record(lhs), Type::Record(rhs)) => 'outer: {
                 for (l, r) in izip!(lhs.fields, rhs.fields) {
                     if l.name != r.name || !self.eq(l.ty, r.ty) {
                         break 'outer false;
@@ -240,10 +240,7 @@ impl<'a> TypeContext<'a> {
                     }
                 }
 
-                match (lhs.return_ty, rhs.return_ty) {
-                    (Some(lhs), Some(rhs)) if !self.eq(lhs, rhs) => false,
-                    _ => true,
-                }
+                self.eq(lhs.return_ty, rhs.return_ty)
             }
 
             _ => false,
@@ -304,7 +301,7 @@ impl<'a> Display for TypeFmt<'a> {
                 }
                 write!(f, "}}")
             }
-            Type::Struct(v) => {
+            Type::Record(v) => {
                 write!(f, "struct {{")?;
                 for field in v.fields {
                     write!(f, "{}", field.name)?;
@@ -329,10 +326,7 @@ impl<'a> Display for TypeFmt<'a> {
                 }
 
                 write!(f, ")")?;
-
-                if let Some(ret) = return_ty {
-                    write!(f, " -> {}", self.ctx.display(ret))?;
-                }
+                write!(f, " -> {}", self.ctx.display(return_ty))?;
 
                 Ok(())
             }

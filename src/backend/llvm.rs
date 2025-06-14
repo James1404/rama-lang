@@ -110,7 +110,7 @@ impl<'a> IntoLLVM<'a> for Type<'a> {
                     )
                 }
                 Type::Array { inner, len } => LLVMArrayType2(inner.into_llvm(extra), len as _),
-                Type::Struct(s) => {
+                Type::Record(s) => {
                     let mut elements = s
                         .fields
                         .iter()
@@ -140,10 +140,7 @@ impl<'a> IntoLLVM<'a> for Type<'a> {
                         .collect_vec()
                         .into_boxed_slice();
 
-                    let return_ty = match return_ty {
-                        Some(ty) => ty.into_llvm(extra),
-                        _ => LLVMVoidTypeInContext(extra.context),
-                    };
+                    let return_ty = return_ty.into_llvm(extra);
 
                     LLVMFunctionType(return_ty, parameters.as_mut_ptr(), parameters.len() as _, 0)
                 }
@@ -200,7 +197,7 @@ impl<'a> IntoLLVM<'a> for TypeID {
                     )
                 }
                 Type::Array { inner, len } => LLVMArrayType2(inner.into_llvm(extra), len as _),
-                Type::Struct(s) => {
+                Type::Record(s) => {
                     let mut elements = s
                         .fields
                         .iter()
@@ -230,10 +227,7 @@ impl<'a> IntoLLVM<'a> for TypeID {
                         .collect_vec()
                         .into_boxed_slice();
 
-                    let return_ty = match return_ty {
-                        Some(ty) => ty.into_llvm(extra),
-                        _ => LLVMVoidTypeInContext(extra.context),
-                    };
+                    let return_ty = return_ty.into_llvm(extra);
 
                     LLVMFunctionType(return_ty, parameters.as_mut_ptr(), parameters.len() as _, 0)
                 }
@@ -795,6 +789,9 @@ impl<'a> CodeBuilder<'a> {
                         let alloca = mapping.get(place.clone());
                         let value = self.eval_rvalue(self.builder, mapping, rvalue);
                         unsafe { LLVMBuildStore(self.builder, value, alloca) };
+                    },
+                    Statement::Expression(rvalue) => {
+                        self.eval_rvalue(self.builder, mapping, rvalue);
                     }
                 }
             }

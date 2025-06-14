@@ -30,9 +30,9 @@
 
               libxml2
 
-              cargo-udeps
-              clippy
-              tokei
+              # cargo-udeps
+              # clippy
+              # tokei
 
               aflplusplus
             ];

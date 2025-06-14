@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::lexer::position::Position;
 use phf::phf_map;
 use strum_macros::IntoStaticStr;
@@ -47,7 +49,7 @@ pub enum TokenType {
     LAngle,
     RAngle,
 
-    StructConstructor, // .{
+    RecordConstructor, // .{
     LBrace,
     RBrace,
 
@@ -56,6 +58,7 @@ pub enum TokenType {
     // Keywords
     Begin,
     End,
+    Is,
 
     If,
     Then,
@@ -63,7 +66,6 @@ pub enum TokenType {
 
     True,
     False,
-
 
     For,
     While,
@@ -82,7 +84,7 @@ pub enum TokenType {
     Extern,
 
     Type,
-    Struct,
+    Record,
     Enum,
     Distinct,
     Interface,
@@ -102,9 +104,16 @@ pub struct Token<'a> {
     pub pos: Position,
 }
 
+impl<'a> Display for Token<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.text)
+    }
+}
+
 pub static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
     "begin" => TokenType::Begin,
     "end" => TokenType::End,
+    "is" => TokenType::Is,
 
     "if" => TokenType::If,
     "then" => TokenType::Then,
@@ -130,7 +139,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
     "extern" => TokenType::Extern,
 
     "type" => TokenType::Type,
-    "struct" => TokenType::Struct,
+    "record" => TokenType::Record,
     "enum" => TokenType::Enum,
     "distinct" => TokenType::Distinct,
     "interface" => TokenType::Interface,

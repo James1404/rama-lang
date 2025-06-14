@@ -1,10 +1,26 @@
-type person = struct
+type Gender is enum
+     Male;
+     Female;
+end
+
+type Person is record
+     name: str;
      age: i32;
+     gender: Gender;
 end
 
 fn read(filename: str) -> i32
-   let nathan: person = .{ age: 19 };
-   nathan.age = 20;
+   let nathan = .{
+          name: "nathan",
+          age: 17,
+          gender: Male,
+   } as Person;
+
+   let nathan: Person = .{
+       name: "nathan",
+       age: 17,
+       gender: Male,
+   };
 
    const name = filename;
 

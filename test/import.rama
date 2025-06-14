@@ -1,5 +1,5 @@
 import "std/string.rama";
 
 fn main()
-   let name = String.from("hey");
+   let name = from("hey");
 end

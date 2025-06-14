@@ -7,7 +7,7 @@ use crate::{
     ast::{ASTView, BinOp, Literal, Node, Ref, UnOp},
     scope::ScopeArena,
     tast::{TypeMetadata, TypedAST},
-    ty::{Field, FloatKind, FnType, IntSize, Struct, Sum, Type, TypeContext, TypeID, Variant},
+    ty::{Field, FloatKind, FnType, IntSize, Record, Sum, Type, TypeContext, TypeID, Variant},
 };
 
 pub use error::{Result, SemaError};
@@ -172,7 +172,7 @@ impl<'ast> Sema<'ast> {
                 Literal::Int(_) => Ok(self.ctx.alloc(Type::int(IntSize::Bits32))),
                 Literal::Float(_) => Ok(self.ctx.alloc(Type::Float(FloatKind::F32))),
                 Literal::Bool(_) => Ok(self.ctx.alloc(Type::Bool)),
-                Literal::Struct { fields: v } => {
+                Literal::Record { fields: v } => {
                     let mut fields = Vec::<Field>::new();
                     for node in v {
                         fields.push(Field {
@@ -181,7 +181,7 @@ impl<'ast> Sema<'ast> {
                         });
                     }
 
-                    Ok(self.ctx.alloc(Type::Struct(Struct {
+                    Ok(self.ctx.alloc(Type::Record(Record {
                         fields,
                         typevariables: vec![],
                     })))
@@ -200,7 +200,7 @@ impl<'ast> Sema<'ast> {
                 let ident = self.get_ident(field)?;
 
                 match self.ctx.get(ty) {
-                    Type::Struct(Struct {
+                    Type::Record(Record {
                         fields,
                         typevariables: _,
                     }) => {
@@ -312,7 +312,7 @@ impl<'ast> Sema<'ast> {
 
     fn term_to_ty(&mut self, term: Ref, _arguments: Option<Vec<Ref>>) -> Result<'ast, TypeID> {
         let ty = match self.ast.get(term) {
-            Node::StructType(f) => {
+            Node::RecordType(f) => {
                 let mut fields = Vec::<Field>::new();
                 for node in f {
                     fields.push(Field {
@@ -321,7 +321,7 @@ impl<'ast> Sema<'ast> {
                     });
                 }
 
-                self.ctx.alloc(Type::Struct(Struct {
+                self.ctx.alloc(Type::Record(Record {
                     fields,
                     typevariables: vec![],
                 }))
@@ -490,7 +490,7 @@ impl<'ast> Sema<'ast> {
             Node::ExternFnDecl { ident, params, ret } => {
                 let ident = self.get_ident(ident)?;
 
-                let returnty = self.term_to_ty(ret, None)?;
+                let return_ty = self.term_to_ty(ret, None)?;
 
                 let parameters = {
                     let mut vec = Vec::<(&'ast str, TypeID)>::new();
@@ -504,7 +504,7 @@ impl<'ast> Sema<'ast> {
 
                 let ty = self.ctx.alloc(Type::Fn(FnType {
                     parameters,
-                    return_ty: Some(returnty),
+                    return_ty,
                 }));
 
                 self.scopes.push(ident, Def::Fn(ty));
@@ -527,10 +527,10 @@ impl<'ast> Sema<'ast> {
             } => {
                 let ident = self.get_ident(ident)?;
 
-                let returnty = if let Some(ret) = ret {
-                    Some(self.term_to_ty(ret, None)?)
+                let return_ty = if let Some(ret) = ret {
+                    self.term_to_ty(ret, None)?
                 } else {
-                    None
+                    self.ctx.alloc(Type::Unit)
                 };
 
                 let parameters = {
@@ -545,7 +545,7 @@ impl<'ast> Sema<'ast> {
 
                 let ty = self.ctx.alloc(Type::Fn(FnType {
                     parameters,
-                    return_ty: returnty,
+                    return_ty,
                 }));
 
                 self.scopes.push(ident, Def::Fn(ty));
@@ -559,7 +559,7 @@ impl<'ast> Sema<'ast> {
                 }
 
                 self.callstack.push(Frame {
-                    return_type: returnty,
+                    return_type: Some(return_ty),
                 });
 
                 self.eval(block)?;

@@ -4,9 +4,9 @@ build:
 run *ARGS='':
     cargo run -- {{ARGS}}
 
-compile file: (run "--print-tokens --print-ast -b llvm compile" file)
+compile file: (run "--print-tokens --print-ast compile" file)
 
-tests: (run "-b llvm --print-ast tests")
+tests: (run "--print-ast tests")
 
 dbg:
     rust-gdb target/debug/rama-lang

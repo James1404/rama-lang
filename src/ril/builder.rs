@@ -11,7 +11,7 @@ use crate::{
     ast::{self, Literal, Node},
     scope::ScopeArena,
     tast::TypedAST,
-    ty::{FnType, Struct, Type, TypeContext, TypeID},
+    ty::{FnType, Record, Type, TypeContext, TypeID},
 };
 
 use super::{
@@ -120,7 +120,7 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
                     } else {
                         ConstKind::False
                     }),
-                    Literal::Struct { fields } => {
+                    Literal::Record { fields } => {
                         let ty = self.builder.tast.get_type_id(node);
                         let dest = self.make_place(ty);
 
@@ -182,7 +182,7 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
             Node::FieldAccess(value, field) => {
                 let field = self.builder.tast.get_ident(field);
                 let (idx, field) = match self.builder.tast.get_ty(value) {
-                    Type::Struct(Struct { fields, .. }) => fields
+                    Type::Record(Record { fields, .. }) => fields
                         .into_iter()
                         .find_position(|f| f.name == field)
                         .unwrap(),
@@ -207,15 +207,10 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
                     _ => panic!(),
                 };
 
-                if let Some(return_ty) = ty.return_ty {
-                    let dest = self.make_place(return_ty);
-                    bb.append(Statement::Assign(dest, RValue::Call(func.0, args)));
+                let dest = self.make_place(ty.return_ty);
+                bb.append(Statement::Assign(dest, RValue::Call(func.0, args)));
 
-                    dest
-                } else {
-                    bb.append(Statement::Expression(RValue::Call(func.0, args)));
-                    Place(0, &[])
-                }
+                dest
             }
 
             Node::IfElse { cond, t, f } => {
@@ -280,7 +275,7 @@ impl<'ctx, 'a> CFGBuilder<'ctx, 'a> {
 
                     let field = self.builder.tast.get_ident(field);
                     let field = match self.builder.tast.get_ty(structvalue) {
-                        Type::Struct(Struct { fields, .. }) => {
+                        Type::Record(Record { fields, .. }) => {
                             fields.iter().position(|f| f.name == field).unwrap()
                         }
                         _ => panic!(),
