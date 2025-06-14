@@ -29,14 +29,31 @@ Rama will be compiled to machine code via LLVM, meaning you'll have a fast binar
 - [x] Compile TIR down to machine code via LLVM.
 - [ ] Implement a borrow checker to guarantee memory safety.
 
+## Example
+
+```Rust
+fn factorial(n: i32) -> i32
+    if n == 0 then
+        1
+    else
+        factorial(n - 1)
+    end
+end
+
+fn main()
+    factorial(12);
+end
+```
+
 ## Building
 
-Either run: `cargo run`
+Run: `cargo run`
 
 ### Dependencies
 
 - Rustc
 - Cargo
 - LLVM-20
+- Nix package manager
 
 The better option is to use the nix package manager and run `nix develop`

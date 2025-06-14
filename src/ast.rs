@@ -512,14 +512,14 @@ impl Display for Statement<'_> {
         use Statement::*;
 
         match self {
-            ConstDecl(v) => writeln!(f, "{v}"),
-            LetDecl(v) => writeln!(f, "{v}"),
-            If(v) => writeln!(f, "{v}"),
-            Match(v) => writeln!(f, "{v}"),
-            Block(block) => writeln!(f, "{block}"),
-            Expr(expr) => writeln!(f, "{expr};"),
-            Return(expr) => writeln!(f, "return {expr};"),
-            ReturNone => writeln!(f, "return;"),
+            ConstDecl(v) => write!(f, "{v}"),
+            LetDecl(v) => write!(f, "{v}"),
+            If(v) => write!(f, "{v}"),
+            Match(v) => write!(f, "{v}"),
+            Block(block) => write!(f, "{block}"),
+            Expr(expr) => write!(f, "{expr};"),
+            Return(expr) => write!(f, "return {expr};"),
+            ReturNone => write!(f, "return;"),
         }
     }
 }
@@ -529,12 +529,12 @@ impl Display for TopLevelStatement<'_> {
         use TopLevelStatement::*;
 
         match self {
-            ConstDecl(v) => writeln!(f, "{v}"),
-            LetDecl(v) => writeln!(f, "{v}"),
-            Type { ident, inner } => writeln!(f, "type {ident} is {inner}"),
-            ExternFn(v) => writeln!(f, "{v}"),
-            Fn(v) => writeln!(f, "{v}"),
-            Import(v) => writeln!(f, "{v}"),
+            ConstDecl(v) => write!(f, "{v}"),
+            LetDecl(v) => write!(f, "{v}"),
+            Type { ident, inner } => write!(f, "type {ident} is {inner}"),
+            ExternFn(v) => write!(f, "{v}"),
+            Fn(v) => write!(f, "{v}"),
+            Import(v) => write!(f, "{v}"),
         }
     }
 }

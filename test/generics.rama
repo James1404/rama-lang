@@ -1,8 +1,8 @@
-type Vec2<T> = struct
-    x: T;
-    y: T;
+type Vec2 is record
+    x: f32;
+    y: f32;
 end
 
 fn main() -> void
-   let pos: Vec2<i32> = .{ x: 0, y: 25 };
+   let pos: Vec2 = .{ x: 0, y: 25 };
 end
