@@ -3,13 +3,15 @@ use std::collections::HashMap;
 use derive_more::{Display, From, Into};
 use typed_index_collections::TiVec;
 
+use crate::ast::Ident;
+
 #[derive(Debug, Default, Clone, Copy, Display, From, Into)]
 pub struct Index(pub usize);
 
 #[derive(Debug, Clone)]
 pub struct Scope<'a, T: Clone> {
     parent: Option<Index>,
-    data: HashMap<&'a str, T>,
+    data: HashMap<Ident<'a>, T>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -37,9 +39,9 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
         &mut self.data[index]
     }
 
-    fn get_from_index(&self, index: Index, key: &'a str) -> Option<T> {
+    fn get_from_index(&self, index: Index, key: Ident<'a>) -> Option<T> {
         let current = self.get_index(index);
-        match current.data.get(key) {
+        match current.data.get(&key) {
             Some(value) => Some(value.clone()),
             None => match current.parent {
                 Some(parent) => self.get_from_index(parent, key),
@@ -48,15 +50,15 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
         }
     }
 
-    pub fn get(&self, key: &'a str) -> Option<T> {
+    pub fn get(&self, key: Ident<'a>) -> Option<T> {
         self.get_from_index(self.current, key)
     }
 
-    pub fn get_unchecked(&self, key: &'a str) -> T {
+    pub fn get_unchecked(&self, key: Ident<'a>) -> T {
         unsafe { self.get_from_index(self.current, key).unwrap_unchecked() }
     }
 
-    pub fn push(&mut self, key: &'a str, value: T) {
+    pub fn push(&mut self, key: Ident<'a>, value: T) {
         let scope = self.get_index_mut(self.current);
         scope.data.insert(key, value);
     }
@@ -79,12 +81,12 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
 
 pub struct Iterator<'a, T: Clone> {
     current_scope: Index,
-    data_iter: std::collections::hash_map::Iter<'a, &'a str, T>,
+    data_iter: std::collections::hash_map::Iter<'a, Ident<'a>, T>,
     arena: &'a ScopeArena<'a, T>,
 }
 
 impl<'a, T: Clone> std::iter::Iterator for Iterator<'a, T> {
-    type Item = (&'a str, T);
+    type Item = (Ident<'a>, T);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((name, item)) = self.data_iter.next() {

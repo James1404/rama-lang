@@ -1,5 +1,5 @@
 use derive_more::Display;
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 use crate::lexer::{Token, TokenType};
 
@@ -82,35 +82,35 @@ impl BinOp {
     }
 }
 
-#[derive(Debug, Display)]
+#[derive(Debug, Display, Clone, Copy, Hash, PartialEq, Eq)]
 #[display("{_0}")]
-pub struct Ident<'a>(pub Token<'a>);
+pub struct Ident<'a>(pub &'a str);
 
 #[derive(Debug, Display)]
 #[display("{ident}: {value}")]
 pub struct LiteralRecordField<'a> {
     pub ident: Ident<'a>,
-    pub value: Expr<'a>,
+    pub value: Rc<Expr<'a>>,
 }
 
 #[derive(Debug, Display)]
 #[display("{ident}: {ty}")]
 pub struct RecordField<'a> {
     pub ident: Ident<'a>,
-    pub ty: Type<'a>,
+    pub ty: Rc<Type<'a>>,
 }
 
 #[derive(Debug)]
 pub struct EnumVariant<'a> {
     pub ident: Ident<'a>,
-    pub ty: Option<Type<'a>>,
+    pub ty: Option<Rc<Type<'a>>>,
 }
 
 #[derive(Debug, Display)]
 #[display("{ident}: {ty}")]
 pub struct Param<'a> {
     pub ident: Ident<'a>,
-    pub ty: Type<'a>,
+    pub ty: Rc<Type<'a>>,
 }
 
 #[derive(Debug)]
@@ -125,44 +125,48 @@ pub enum Value<'a> {
     },
 
     Call {
-        func: Box<Expr<'a>>,
-        args: Vec<Expr<'a>>,
+        func: Rc<Expr<'a>>,
+        args: Vec<Rc<Expr<'a>>>,
     },
 
     FieldAccess {
-        value: Box<Expr<'a>>,
+        value: Rc<Expr<'a>>,
         field: Ident<'a>,
     },
     Index {
-        value: Box<Expr<'a>>,
+        value: Rc<Expr<'a>>,
         index: usize,
     },
 
-    Ref(Box<Expr<'a>>),
-    Deref(Box<Expr<'a>>),
+    Ref(Rc<Expr<'a>>),
+    Deref(Rc<Expr<'a>>),
 }
 
 #[derive(Debug)]
 pub enum Expr<'a> {
     Value(Value<'a>),
     Binary {
-        lhs: Box<Expr<'a>>,
+        lhs: Rc<Expr<'a>>,
         op: BinOp,
-        rhs: Box<Expr<'a>>,
+        rhs: Rc<Expr<'a>>,
     },
     Unary {
-        op: BinOp,
-        value: Box<Expr<'a>>,
+        op: UnOp,
+        value: Rc<Expr<'a>>,
     },
     Assign {
-        lhs: Box<Expr<'a>>,
-        value: Box<Expr<'a>>,
+        lhs: Rc<Expr<'a>>,
+        value: Rc<Expr<'a>>,
     },
 
     Cast {
-        value: Box<Expr<'a>>,
-        ty: Type<'a>,
+        value: Rc<Expr<'a>>,
+        ty: Rc<Type<'a>>,
     },
+
+    If(If<'a>),
+    Match(Match<'a>),
+    Block(Block<'a>),
 }
 
 #[derive(Debug)]
@@ -171,63 +175,66 @@ pub enum Type<'a> {
     Record(Vec<RecordField<'a>>),
     Enum(Vec<EnumVariant<'a>>),
     Fn {
-        params: Vec<Box<Type<'a>>>,
-        ret: Option<Box<Type<'a>>>,
+        params: Vec<Rc<Type<'a>>>,
+        ret: Option<Rc<Type<'a>>>,
         external_linkage: bool,
     },
-    Ptr(Box<Type<'a>>),
-    Slice(Box<Type<'a>>),
-    Array(Box<Type<'a>>, usize),
+    Ptr(Rc<Type<'a>>),
+    Slice(Rc<Type<'a>>),
+    Array(Rc<Type<'a>>, usize),
 }
 
 #[derive(Debug)]
-pub struct Block<'a>(pub Vec<Statement<'a>>);
+pub struct Block<'a> {
+    pub statements: Vec<Statement<'a>>,
+    pub result: Option<Rc<Expr<'a>>>,
+}
 
 #[derive(Debug)]
 pub struct ConstDecl<'a> {
     pub ident: Ident<'a>,
-    pub ty: Option<Type<'a>>,
-    pub value: Expr<'a>,
+    pub ty: Option<Rc<Type<'a>>>,
+    pub value: Rc<Expr<'a>>,
 }
 
 #[derive(Debug)]
 pub struct LetDecl<'a> {
     pub ident: Ident<'a>,
-    pub ty: Option<Type<'a>>,
-    pub value: Expr<'a>,
+    pub ty: Option<Rc<Type<'a>>>,
+    pub value: Rc<Expr<'a>>,
 }
 
 #[derive(Debug)]
 pub struct ExternFn<'a> {
     pub ident: Ident<'a>,
     pub params: Vec<Param<'a>>,
-    pub ret: Option<Type<'a>>,
+    pub ret: Option<Rc<Type<'a>>>,
 }
 
 #[derive(Debug)]
 pub struct Fn<'a> {
     pub ident: Ident<'a>,
     pub params: Vec<Param<'a>>,
-    pub ret: Option<Type<'a>>,
+    pub ret: Option<Rc<Type<'a>>>,
     pub block: Block<'a>,
 }
 
 #[derive(Debug)]
 pub struct If<'a> {
-    pub cond: Expr<'a>,
+    pub cond: Rc<Expr<'a>>,
     pub then: Block<'a>,
     pub otherwise: Option<Block<'a>>,
 }
 
 #[derive(Debug)]
 pub struct MatchBranch<'a> {
-    pub pattern: Expr<'a>,
-    pub value: Expr<'a>,
+    pub pattern: Rc<Expr<'a>>,
+    pub value: Rc<Expr<'a>>,
 }
 
 #[derive(Debug)]
 pub struct Match<'a> {
-    pub value: Expr<'a>,
+    pub value: Rc<Expr<'a>>,
     pub branches: Vec<MatchBranch<'a>>,
 }
 
@@ -240,14 +247,10 @@ pub enum Statement<'a> {
     ConstDecl(ConstDecl<'a>),
     LetDecl(LetDecl<'a>),
 
-    If(If<'a>),
-    Match(Match<'a>),
+    Expr(Rc<Expr<'a>>),
 
-    Block(Block<'a>),
-    Expr(Expr<'a>),
-
-    Return(Expr<'a>),
-    ReturNone,
+    Return(Rc<Expr<'a>>),
+    ReturnNone,
 }
 
 #[derive(Debug)]
@@ -255,7 +258,7 @@ pub enum TopLevelStatement<'a> {
     ConstDecl(ConstDecl<'a>),
     LetDecl(LetDecl<'a>),
 
-    Type { ident: Ident<'a>, inner: Type<'a> },
+    Type { ident: Ident<'a>, inner: Rc<Type<'a>> },
 
     ExternFn(ExternFn<'a>),
     Fn(Fn<'a>),
@@ -333,6 +336,9 @@ impl Display for Expr<'_> {
             Unary { op, value } => write!(f, "{op}{value}"),
             Assign { lhs, value } => write!(f, "{lhs} = {value}"),
             Cast { value, ty } => write!(f, "{value} as {ty}"),
+            If(v) => write!(f, "{v}"),
+            Match(v) => write!(f, "{v}"),
+            Block(block) => write!(f, "{block}"),
         }
     }
 }
@@ -398,8 +404,12 @@ impl Display for Type<'_> {
 
 impl Display for Block<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for s in &self.0 {
+        for s in &self.statements {
             writeln!(f, "\t{s}")?;
+        }
+
+        if let Some(result) = &self.result {
+            writeln!(f, "\t{}", result)?;
         }
 
         Ok(())
@@ -514,9 +524,6 @@ impl Display for Statement<'_> {
         match self {
             ConstDecl(v) => write!(f, "{v}"),
             LetDecl(v) => write!(f, "{v}"),
-            If(v) => write!(f, "{v}"),
-            Match(v) => write!(f, "{v}"),
-            Block(block) => write!(f, "{block}"),
             Expr(expr) => write!(f, "{expr};"),
             Return(expr) => write!(f, "return {expr};"),
             ReturNone => write!(f, "return;"),

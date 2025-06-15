@@ -2,6 +2,12 @@ mod ast;
 mod lexer;
 mod metadata;
 mod parser;
+mod scope;
+mod sema;
+mod ty;
+// mod tast;
+mod ril;
+// mod backend;
 
 use std::{fs, io, path::Path};
 
@@ -14,6 +20,7 @@ use parser::Parser;
 
 use clap::{Command, Parser as ClapParser, Subcommand};
 use clap_complete::{Generator, Shell, generate};
+use sema::{Sema, SemaError};
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "The Rama Compiler")]
@@ -71,22 +78,22 @@ where
         println!("{ast}");
     }
 
-    //    let sema = Sema::new(astview);
-    //    let (tast, errors) = sema.run();
-    //
-    //    for error in &errors {
-    //        match error {
-    //            SemaError::InvalidTerm(term) => {
-    //                println!("Error: [InvalidTerm] {:#?}", astview.get(*term))
-    //            }
-    //            SemaError::Err(msg) => println!("Error: {}", msg),
-    //            _ => println!("Error: {}", error),
-    //        }
-    //    }
-    //    if !errors.is_empty() {
-    //        return Ok(());
-    //    }
-    //
+    let sema = Sema::new(ast);
+    let (tast, errors) = sema.run();
+
+    for error in &errors {
+        match error {
+            SemaError::InvalidTerm(term) => {
+                println!("Error: [InvalidTerm] {:#?}", term)
+            }
+            SemaError::Err(msg) => println!("Error: {}", msg),
+            _ => println!("Error: {}", error),
+        }
+    }
+    if !errors.is_empty() {
+        return Ok(());
+    }
+
     //    let builder = ril::Builder::new(&tast);
     //    let ril = builder.build();
     //

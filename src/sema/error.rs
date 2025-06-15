@@ -18,6 +18,9 @@ pub enum SemaError<'a> {
         op: TokenType,
         rhs: TypeID,
     },
+    #[error("Cannot assign {value} to {var}")]
+    InvalidAssignment { var: TypeID, value: TypeID },
+
     #[error("Variable \"{_0}\" not defined")]
     NotDefined(&'a str),
 

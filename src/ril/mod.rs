@@ -90,7 +90,6 @@ pub enum BinOp {
 impl From<ast::BinOp> for BinOp {
     fn from(value: ast::BinOp) -> Self {
         match value {
-            ast::BinOp::Invalid => panic!(),
             ast::BinOp::Add => Self::Add,
             ast::BinOp::Sub => Self::Sub,
             ast::BinOp::Mul => Self::Mul,

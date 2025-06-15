@@ -1,4 +1,4 @@
-use std::result;
+use std::{rc::Rc, result};
 
 use itertools::Itertools;
 
@@ -130,7 +130,7 @@ pub type Result<'a, T> = result::Result<T, ParserError<'a>>;
 
 enum Operator {
     Invalid,
-    
+
     Binary(BinOp),
     Assign,
     Cast,
@@ -188,19 +188,19 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
     }
 
-    fn advance_alloc_ok<T>(&mut self, t: T) -> Result<'a, T> {
+    fn advance_alloc_ok<T>(&mut self, t: T) -> Result<'a, Rc<T>> {
         self.cursor.advance();
-        Ok(t)
+        Ok(Rc::new(t))
     }
 
     fn parse_ident(&mut self) -> Result<'a, Ident<'a>> {
         let token = self.cursor.current();
         self.cursor.expects(TokenType::Ident)?;
 
-        Ok(Ident(token))
+        Ok(Ident(token.text))
     }
 
-    fn expression(&mut self, lhs: Expr<'a>, min_precedence: i32) -> Result<'a, Expr<'a>> {
+    fn expression(&mut self, lhs: Rc<Expr<'a>>, min_precedence: i32) -> Result<'a, Rc<Expr<'a>>> {
         let mut last = lhs;
         let mut current = Operator::from(self.cursor.current().ty);
 
@@ -209,10 +209,10 @@ impl<'a, 'b> Parser<'a, 'b> {
 
             if let Operator::Cast = op {
                 let rhs = self.parse_type_expr()?;
-                last = Expr::Cast {
-                    value: Box::new(last),
+                last = Rc::new(Expr::Cast {
+                    value: last,
                     ty: rhs,
-                };
+                });
                 break;
             }
 
@@ -232,30 +232,30 @@ impl<'a, 'b> Parser<'a, 'b> {
                 )?;
             }
 
-            last = match op {
+            last = Rc::new(match op {
                 Operator::Binary(op) => Expr::Binary {
-                    lhs: Box::new(last),
-                    rhs: Box::new(rhs),
+                    lhs: last,
+                    rhs,
                     op,
                 },
                 Operator::Assign => Expr::Assign {
-                    lhs: Box::new(last),
-                    value: Box::new(rhs),
+                    lhs: last,
+                    value: rhs,
                 },
                 _ => panic!(),
-            };
+            });
         }
 
         Ok(last)
     }
 
     // https://en.wikipedia.org/wiki/Operator-precedence_parser
-    fn parse_expr(&mut self) -> Result<'a, Expr<'a>> {
+    fn parse_expr(&mut self) -> Result<'a, Rc<Expr<'a>>> {
         let lhs = self.parse_value()?;
         self.expression(lhs, 0)
     }
 
-    fn parse_value(&mut self) -> Result<'a, Expr<'a>> {
+    fn parse_value(&mut self) -> Result<'a, Rc<Expr<'a>>> {
         let token = self.cursor.current();
 
         let value = match token.ty {
@@ -264,7 +264,7 @@ impl<'a, 'b> Parser<'a, 'b> {
             TokenType::Int => self.advance_alloc_ok(Expr::Value(Value::Int(token.text))),
             TokenType::Ident => {
                 let ident = self.parse_ident()?;
-                Ok(Expr::Value(Value::Ident(ident)))
+                Ok(Rc::new(Expr::Value(Value::Ident(ident))))
             }
             TokenType::True => self.advance_alloc_ok(Expr::Value(Value::Bool(true))),
             TokenType::False => self.advance_alloc_ok(Expr::Value(Value::Bool(false))),
@@ -305,8 +305,11 @@ impl<'a, 'b> Parser<'a, 'b> {
                 // TODO: Allow alternative "Vec2 { x: 5, y: 16 }"
                 // syntax as opposed to .{ x: 5, y: 16 } inference
 
-                Ok(Expr::Value(Value::Record { fields }))
+                Ok(Rc::new(Expr::Value(Value::Record { fields })))
             }
+
+            TokenType::If => Ok(Rc::new(Expr::If(self.parse_if()?))),
+            TokenType::Begin => Ok(Rc::new(Expr::Block(self.parse_block()?))),
 
             _ => {
                 self.cursor.advance();
@@ -319,7 +322,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         };
 
         if self.cursor.advance_if(TokenType::LParen) {
-            let mut args = Vec::<Expr>::new();
+            let mut args: Vec<Rc<Expr>> = Vec::new();
 
             loop {
                 if self.cursor.matches(TokenType::RParen) {
@@ -348,16 +351,16 @@ impl<'a, 'b> Parser<'a, 'b> {
                 });
             }
 
-            return Ok(Expr::Value(Value::Call {
-                func: Box::new(value?),
+            return Ok(Rc::new(Expr::Value(Value::Call {
+                func: value?,
                 args,
-            }));
+            })));
         }
 
         value
     }
 
-    fn parse_enum_type(&mut self) -> Result<'a, Type<'a>> {
+    fn parse_enum_type(&mut self) -> Result<'a, Rc<Type<'a>>> {
         let token = self.cursor.current();
 
         self.cursor.expects(TokenType::Enum)?;
@@ -385,10 +388,10 @@ impl<'a, 'b> Parser<'a, 'b> {
             self.cursor.expects(TokenType::Semicolon)?;
         }
 
-        return Ok(Type::Enum(variants));
+        return Ok(Rc::new(Type::Enum(variants)));
     }
 
-    fn parse_record_type(&mut self) -> Result<'a, Type<'a>> {
+    fn parse_record_type(&mut self) -> Result<'a, Rc<Type<'a>>> {
         let token = self.cursor.current();
 
         self.cursor.expects(TokenType::Record)?;
@@ -424,10 +427,10 @@ impl<'a, 'b> Parser<'a, 'b> {
             }
         }
 
-        Ok(Type::Record(fields))
+        Ok(Rc::new(Type::Record(fields)))
     }
 
-    fn parse_type_expr(&mut self) -> Result<'a, Type<'a>> {
+    fn parse_type_expr(&mut self) -> Result<'a, Rc<Type<'a>>> {
         let token = self.cursor.current();
 
         let value = match token.ty {
@@ -435,11 +438,11 @@ impl<'a, 'b> Parser<'a, 'b> {
                 self.cursor.advance();
 
                 let inner = self.parse_type_expr()?;
-                return Ok(Type::Ptr(Box::new(inner)));
+                return Ok(Rc::new(Type::Ptr(inner)));
             }
             TokenType::Record => self.parse_record_type()?,
             TokenType::Enum => self.parse_enum_type()?,
-            TokenType::Ident => Type::Ident(self.parse_ident()?),
+            TokenType::Ident => Rc::new(Type::Ident(self.parse_ident()?)),
             TokenType::LBracket => {
                 self.cursor.advance();
 
@@ -455,9 +458,9 @@ impl<'a, 'b> Parser<'a, 'b> {
                         _ => todo!("Add error message for invalid array size"),
                     };
 
-                    Type::Array(Box::new(inner), len)
+                    Rc::new(Type::Array(inner, len))
                 } else {
-                    Type::Slice(Box::new(inner))
+                    Rc::new(Type::Slice(inner))
                 };
 
                 self.cursor.expects(TokenType::RBracket)?;
@@ -498,9 +501,9 @@ impl<'a, 'b> Parser<'a, 'b> {
 
             TokenType::Return => {
                 self.cursor.advance();
-                
+
                 if self.cursor.advance_if(TokenType::Semicolon) {
-                    Ok(Statement::ReturNone)
+                    Ok(Statement::ReturnNone)
                 } else {
                     let expr = self.parse_expr()?;
                     self.cursor.expects(TokenType::Semicolon)?;
@@ -508,13 +511,13 @@ impl<'a, 'b> Parser<'a, 'b> {
                 }
             }
 
-            TokenType::If => Ok(Statement::If(self.parse_if()?)),
-            TokenType::Begin => Ok(Statement::Block(self.parse_block()?)),
-
             _ => {
                 let expr = self.parse_expr()?;
 
-                self.cursor.expects(TokenType::Semicolon)?;
+                match *expr {
+                    Expr::If(_) | Expr::Match(_) => {}
+                    _ => self.cursor.expects(TokenType::Semicolon)?,
+                }
 
                 Ok(Statement::Expr(expr))
             }
@@ -538,13 +541,16 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
 
         let mut errors = vec![];
-        let stmts = stmts
+        let statements = stmts
             .into_iter()
             .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
             .collect_vec();
 
         if errors.is_empty() {
-            Ok(Block(stmts))
+            Ok(Block {
+                statements,
+                result: None,
+            })
         } else {
             Err(ParserError::Many(errors))
         }
@@ -574,13 +580,16 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
 
         let mut errors = vec![];
-        let stmts = stmts
+        let statements = stmts
             .into_iter()
             .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
             .collect_vec();
 
         if errors.is_empty() {
-            Ok(Block(stmts))
+            Ok(Block {
+                statements,
+                result: None,
+            })
         } else {
             Err(ParserError::Many(errors))
         }
@@ -778,18 +787,17 @@ impl<'a, 'b> Parser<'a, 'b> {
                 stmts.push(self.parse_stmt());
             }
 
-            if !self.cursor.advance_if_many(endings) {
-                panic!();
-            }
-
             let mut errors = vec![];
-            let stmts = stmts
+            let statements = stmts
                 .into_iter()
                 .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
                 .collect_vec();
 
             if errors.is_empty() {
-                Ok(Block(stmts))
+                Ok(Block {
+                    statements,
+                    result: None,
+                })
             } else {
                 Err(ParserError::Many(errors))
             }
@@ -798,10 +806,9 @@ impl<'a, 'b> Parser<'a, 'b> {
         let otherwise = if self.cursor.advance_if(TokenType::Else) {
             Some(self.parse_block_end(TokenType::End)?)
         } else {
+            self.cursor.expects(TokenType::End)?;
             None
         };
-
-        self.cursor.expects(TokenType::End)?;
 
         Ok(If {
             cond,
