@@ -106,13 +106,6 @@ pub struct EnumVariant<'a> {
     pub ty: Option<Rc<Type<'a>>>,
 }
 
-#[derive(Debug, Display)]
-#[display("{ident}: {ty}")]
-pub struct Param<'a> {
-    pub ident: Ident<'a>,
-    pub ty: Rc<Type<'a>>,
-}
-
 #[derive(Debug)]
 pub enum Value<'a> {
     Ident(Ident<'a>),
@@ -204,6 +197,13 @@ pub struct LetDecl<'a> {
     pub value: Rc<Expr<'a>>,
 }
 
+#[derive(Debug, Display)]
+#[display("{ident}: {ty}")]
+pub struct Param<'a> {
+    pub ident: Ident<'a>,
+    pub ty: Rc<Type<'a>>,
+}
+
 #[derive(Debug)]
 pub struct ExternFn<'a> {
     pub ident: Ident<'a>,
@@ -258,7 +258,10 @@ pub enum TopLevelStatement<'a> {
     ConstDecl(ConstDecl<'a>),
     LetDecl(LetDecl<'a>),
 
-    Type { ident: Ident<'a>, inner: Rc<Type<'a>> },
+    Type {
+        ident: Ident<'a>,
+        inner: Rc<Type<'a>>,
+    },
 
     ExternFn(ExternFn<'a>),
     Fn(Fn<'a>),
@@ -526,7 +529,7 @@ impl Display for Statement<'_> {
             LetDecl(v) => write!(f, "{v}"),
             Expr(expr) => write!(f, "{expr};"),
             Return(expr) => write!(f, "return {expr};"),
-            ReturNone => write!(f, "return;"),
+            ReturnNone => write!(f, "return;"),
         }
     }
 }

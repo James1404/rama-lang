@@ -233,11 +233,7 @@ impl<'a, 'b> Parser<'a, 'b> {
             }
 
             last = Rc::new(match op {
-                Operator::Binary(op) => Expr::Binary {
-                    lhs: last,
-                    rhs,
-                    op,
-                },
+                Operator::Binary(op) => Expr::Binary { lhs: last, rhs, op },
                 Operator::Assign => Expr::Assign {
                     lhs: last,
                     value: rhs,
@@ -351,10 +347,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 });
             }
 
-            return Ok(Rc::new(Expr::Value(Value::Call {
-                func: value?,
-                args,
-            })));
+            return Ok(Rc::new(Expr::Value(Value::Call { func: value?, args })));
         }
 
         value
@@ -479,8 +472,6 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     fn parse_type_stmt(&mut self) -> Result<'a, TopLevelStatement<'a>> {
-        let token = self.cursor.current();
-
         self.cursor.expects(TokenType::Type)?;
 
         let ident = self.parse_ident()?;

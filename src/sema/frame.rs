@@ -1,6 +1,6 @@
-use crate::ty::TypeID;
+use crate::ty::TypeRef;
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Frame {
-    pub(super) return_type: Option<TypeID>,
+#[derive(Debug, Clone)]
+pub(super) struct Frame<'a> {
+    pub(super) return_type: Option<TypeRef<'a>>,
 }

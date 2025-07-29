@@ -15,12 +15,18 @@ pub struct Scope<'a, T: Clone> {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct ScopeArena<'a, T: Clone> {
+pub struct ScopeArena<'a, T>
+where
+    T: Clone,
+{
     data: TiVec<Index, Scope<'a, T>>,
     current: Index,
 }
 
-impl<'a, T: Clone> ScopeArena<'a, T> {
+impl<'a, T> ScopeArena<'a, T>
+where
+    T: Clone,
+{
     pub fn new() -> Self {
         let mut data = TiVec::new();
         let current = data.push_and_get_key(Scope {
@@ -31,7 +37,7 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
         Self { data, current }
     }
 
-    fn get_index(&self, index: Index) -> &Scope<T> {
+    fn get_index(&self, index: Index) -> &Scope<'a, T> {
         self.data.get(index).unwrap()
     }
 
@@ -79,13 +85,19 @@ impl<'a, T: Clone> ScopeArena<'a, T> {
     }
 }
 
-pub struct Iterator<'a, T: Clone> {
+pub struct Iterator<'a, T>
+where
+    T: Clone,
+{
     current_scope: Index,
     data_iter: std::collections::hash_map::Iter<'a, Ident<'a>, T>,
     arena: &'a ScopeArena<'a, T>,
 }
 
-impl<'a, T: Clone> std::iter::Iterator for Iterator<'a, T> {
+impl<'a, T> std::iter::Iterator for Iterator<'a, T>
+where
+    T: Clone,
+{
     type Item = (Ident<'a>, T);
 
     fn next(&mut self) -> Option<Self::Item> {

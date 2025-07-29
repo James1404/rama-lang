@@ -2,32 +2,25 @@ use std::result;
 
 use thiserror::Error;
 
-use crate::{ast::Ref, lexer::TokenType, ty::TypeID};
+use crate::{lexer::TokenType, ty::TypeRef};
 
 #[derive(Debug, Clone, Error)]
 pub enum SemaError<'a> {
     #[error("Invalid type")]
     InvalidType,
-    #[error("Invalid term {_0}")]
-    InvalidTerm(Ref),
     #[error("Cannot cast {from} into {into}")]
-    InvalidCast { from: TypeID, into: TypeID },
+    InvalidCast { from: TypeRef<'a>, into: TypeRef<'a> },
     #[error("Invalid binary types {lhs} and {rhs}")]
     InvalidBinaryTypes {
-        lhs: TypeID,
+        lhs: TypeRef<'a>,
         op: TokenType,
-        rhs: TypeID,
+        rhs: TypeRef<'a>,
     },
     #[error("Cannot assign {value} to {var}")]
-    InvalidAssignment { var: TypeID, value: TypeID },
+    InvalidAssignment { var: TypeRef<'a>, value: TypeRef<'a> },
 
     #[error("Variable \"{_0}\" not defined")]
     NotDefined(&'a str),
-
-    #[error("Invalid root node")]
-    InvalidRootNode(Ref),
-    #[error("No root node")]
-    NoRootNode,
 
     #[error("Cannot assign to const \"{_0}\"")]
     CannotAssignToConst(String),

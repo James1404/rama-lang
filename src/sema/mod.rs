@@ -6,7 +6,13 @@ mod frame;
 use std::rc::Rc;
 
 use crate::{
-    ast::{self, BinOp, Block, ConstDecl, Expr, Ident, If, LetDecl, Statement, UnOp, Value, AST}, ril::{Builder, RIL}, scope::ScopeArena, tast::{TypeMetadata, TypedAST}, ty::{Field, FloatKind, FnType, IntSize, Record, Sum, Type, TypeContext, TypeID, Variant}
+    ast::{
+        self, AST, BinOp, Block, ConstDecl, Expr, ExternFn, Fn, Ident, If, LetDecl, Statement,
+        TopLevelStatement, UnOp, Value,
+    },
+    ril::{self, Builder, RIL, builder::CFGBuilder},
+    scope::ScopeArena,
+    ty::{self, Field, FloatKind, FnType, IntSize, Record, Sum, Type, TypeRef, Variant},
 };
 
 pub use error::{Result, SemaError};
@@ -14,110 +20,85 @@ use frame::Frame;
 use itertools::{Itertools, izip};
 
 #[derive(Debug, Clone)]
-enum Def {
-    Const(TypeID),
-    Let(TypeID),
-    Fn(TypeID),
-    Type(TypeID),
+enum Def<'a> {
+    Const(TypeRef<'a>),
+    Let(TypeRef<'a>),
+    Fn(TypeRef<'a>),
+    Type(TypeRef<'a>),
 }
 
-type Scope<'a> = ScopeArena<'a, Def>;
+type Scope<'a> = ScopeArena<'a, Def<'a>>;
 
 pub struct Sema<'a: 'b, 'b> {
     ast: AST<'a>,
     scopes: Scope<'a>,
-
-    ril: Builder<'a, 'b>,
-
-    ctx: TypeContext<'a>,
-    callstack: Vec<Frame>,
+    builder: Builder<'a, 'b>,
+    callstack: Vec<Frame<'a>>,
 }
 
 impl<'a, 'b> Sema<'a, 'b> {
     pub fn new(ast: AST<'a>) -> Self {
-        let ctx = TypeContext::new();
         Self {
             ast,
-            ctx,
             scopes: Scope::new(),
             callstack: vec![],
-            ril: Builder::new(&ctx)
+            builder: Builder::new(),
         }
     }
 
-    fn eq(&self, lhs: TypeID, rhs: TypeID) -> bool {
-        self.ctx.eq(lhs, rhs)
+    fn subtype(&self, lhs: TypeRef<'a>, rhs: TypeRef<'a>) -> bool {
+        lhs == rhs
     }
 
-    fn subtype(&self, lhs: TypeID, rhs: TypeID) -> bool {
-        match (self.ctx.get(lhs), self.ctx.get(rhs)) {
-            (Type::Unit, Type::Unit) => true, // check this is right
-            (Type::Bool, Type::Bool) => true,
-            _ => self.eq(lhs, rhs),
-        }
-    }
-
-    fn add(&mut self, lterm: Rc<Expr<'a>>, rterm: Rc<Expr<'a>>) -> Result<'a, TypeID> {
+    fn add(&mut self, lterm: Rc<Expr<'a>>, rterm: Rc<Expr<'a>>) -> Result<'a, TypeRef<'a>> {
         let t1 = self.infer_expr(lterm)?;
         let t2 = self.infer_expr(rterm)?;
 
-        match (self.ctx.get(t1), self.ctx.get(t2)) {
+        match (t1.as_ref(), t2.as_ref()) {
+            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
+            (Type::Float(_), Type::Float(_)) => Ok(t1),
+            _ => Err(SemaError::Err(format!("Cannot add types {t1} and {t2}",))),
+        }
+    }
+
+    fn sub(&mut self, lterm: Rc<Expr<'a>>, rterm: Rc<Expr<'a>>) -> Result<'a, TypeRef<'a>> {
+        let t1 = self.infer_expr(lterm)?;
+        let t2 = self.infer_expr(rterm)?;
+
+        match (t1.as_ref(), t2.as_ref()) {
             (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
-                "Cannot add types {} and {}",
-                self.ctx.display(t1),
-                self.ctx.display(t2)
+                "Cannot subtract types {t1} and {t2}"
             ))),
         }
     }
 
-    fn sub(&mut self, lterm: Rc<Expr<'a>>, rterm: Rc<Expr<'a>>) -> Result<'a, TypeID> {
+    fn mul(&mut self, lterm: Rc<Expr<'a>>, rterm: Rc<Expr<'a>>) -> Result<'a, TypeRef<'a>> {
         let t1 = self.infer_expr(lterm)?;
         let t2 = self.infer_expr(rterm)?;
 
-        match (self.ctx.get(t1), self.ctx.get(t2)) {
+        match (t1.as_ref(), t2.as_ref()) {
             (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
             _ => Err(SemaError::Err(format!(
-                "Cannot subtract types {} and {}",
-                self.ctx.display(t1),
-                self.ctx.display(t2)
+                "Cannot multiply types {t1} and {t2}"
             ))),
         }
     }
 
-    fn mul(&mut self, lterm: Rc<Expr<'a>>, rterm: Rc<Expr<'a>>) -> Result<'a, TypeID> {
+    fn div(&mut self, lterm: Rc<Expr<'a>>, rterm: Rc<Expr<'a>>) -> Result<'a, TypeRef<'a>> {
         let t1 = self.infer_expr(lterm)?;
         let t2 = self.infer_expr(rterm)?;
 
-        match (self.ctx.get(t1), self.ctx.get(t2)) {
+        match (t1.as_ref(), t2.as_ref()) {
             (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
             (Type::Float(_), Type::Float(_)) => Ok(t1),
-            _ => Err(SemaError::Err(format!(
-                "Cannot multiply types {} and {}",
-                self.ctx.display(t1),
-                self.ctx.display(t2)
-            ))),
+            _ => Err(SemaError::Err(format!("Cannot divide types {t1} and {t2}"))),
         }
     }
 
-    fn div(&mut self, lterm: Rc<Expr<'a>>, rterm: Rc<Expr<'a>>) -> Result<'a, TypeID> {
-        let t1 = self.infer_expr(lterm)?;
-        let t2 = self.infer_expr(rterm)?;
-
-        match (self.ctx.get(t1), self.ctx.get(t2)) {
-            (Type::Int { .. }, Type::Int { .. }) => Ok(t1),
-            (Type::Float(_), Type::Float(_)) => Ok(t1),
-            _ => Err(SemaError::Err(format!(
-                "Cannot divide types {} and {}",
-                self.ctx.display(t1),
-                self.ctx.display(t2)
-            ))),
-        }
-    }
-
-    fn check_block(&mut self, block: Block<'a>, against: TypeID) -> Result<'a, TypeID> {
+    fn check_block(&mut self, block: Block<'a>, against: TypeRef<'a>) -> Result<'a, TypeRef<'a>> {
         let ty = self.infer_block(block)?;
 
         if self.subtype(ty, against) {
@@ -125,28 +106,24 @@ impl<'a, 'b> Sema<'a, 'b> {
             Ok(ty)
         } else {
             Err(SemaError::Err(format!(
-                "Type {} is not compatible with {}",
-                self.ctx.display(ty),
-                self.ctx.display(against)
+                "Type {ty} is not compatible with {against}"
             )))
         }
     }
 
-    fn check_expr(&mut self, term: Rc<Expr<'a>>, against: TypeID) -> Result<'a, TypeID> {
+    fn check_expr(&mut self, term: Rc<Expr<'a>>, against: TypeRef<'a>) -> Result<'a, TypeRef<'a>> {
         let ty = self.infer_expr(term)?;
         if self.subtype(ty, against) {
             self.metadata.set(term, ty);
             Ok(ty)
         } else {
             Err(SemaError::Err(format!(
-                "Type {} is not compatible with {}",
-                self.ctx.display(ty),
-                self.ctx.display(against)
+                "Type {ty} is not compatible with {against}"
             )))
         }
     }
 
-    fn infer_block(&mut self, block: Block<'a>) -> Result<'a, TypeID> {
+    fn infer_block(&mut self, block: Block<'a>) -> Result<'a, TypeRef<'a>> {
         self.scopes.down();
 
         for statement in &block.statements {
@@ -156,7 +133,7 @@ impl<'a, 'b> Sema<'a, 'b> {
         let result = if let Some(result) = block.result.clone() {
             self.infer_expr(result)
         } else {
-            Ok(self.ctx.alloc(Type::Unit))
+            Ok(Type::Unit)
         };
 
         self.scopes.up();
@@ -164,7 +141,7 @@ impl<'a, 'b> Sema<'a, 'b> {
         result
     }
 
-    fn infer_expr(&mut self, expr: Rc<Expr<'a>>) -> Result<'a, TypeID> {
+    fn infer_expr(&mut self, expr: Rc<Expr<'a>>) -> Result<'a, TypeRef<'a>> {
         let ty = match *expr {
             Expr::Binary { lhs, rhs, op } => match op {
                 BinOp::Add => self.add(lhs, rhs),
@@ -182,12 +159,10 @@ impl<'a, 'b> Sema<'a, 'b> {
                     let t2 = self.infer_expr(rhs)?;
 
                     if self.subtype(t1, t2) {
-                        Ok(self.ctx.alloc(Type::Bool))
+                        Ok(Type::Bool)
                     } else {
                         Err(SemaError::Err(format!(
-                            "Cannot compare types {} and {}",
-                            self.ctx.display(t1),
-                            self.ctx.display(t2)
+                            "Cannot compare types {t1} and {t2}",
                         )))
                     }
                 }
@@ -198,10 +173,10 @@ impl<'a, 'b> Sema<'a, 'b> {
             },
 
             Expr::Value(value) => match value {
-                Value::String(_) => Ok(self.ctx.alloc(Type::Str)),
-                Value::Int(_) => Ok(self.ctx.alloc(Type::int(IntSize::Bits32))),
-                Value::Float(_) => Ok(self.ctx.alloc(Type::Float(FloatKind::F32))),
-                Value::Bool(_) => Ok(self.ctx.alloc(Type::Bool)),
+                Value::String(_) => Ok(Rc::new(Type::Str)),
+                Value::Int(_) => Ok(Type::int(Rc::new(IntSize::Bits32))),
+                Value::Float(_) => Ok(Type::Float(Rc::new(FloatKind::F32))),
+                Value::Bool(_) => Ok(Rc::new(Type::Bool)),
                 Value::Record { fields: v } => {
                     let mut fields = Vec::<Field>::new();
                     for field in v {
@@ -211,10 +186,7 @@ impl<'a, 'b> Sema<'a, 'b> {
                         });
                     }
 
-                    Ok(self.ctx.alloc(Type::Record(Record {
-                        fields,
-                        typevariables: vec![],
-                    })))
+                    Ok(Rc::new(Type::Record(Record { fields })))
                 }
                 Value::Ident(ident) => match self.scopes.get(ident) {
                     Some(Def::Const(ty)) => Ok(ty),
@@ -236,10 +208,7 @@ impl<'a, 'b> Sema<'a, 'b> {
                     let ty = self.infer_expr(value)?;
 
                     match self.ctx.get(ty) {
-                        Type::Record(Record {
-                            fields,
-                            typevariables: _,
-                        }) => {
+                        Type::Record(Record { fields }) => {
                             if let Some(Field { name: _, ty }) =
                                 fields.iter().find(|f| f.name == field.0)
                             {
@@ -291,7 +260,7 @@ impl<'a, 'b> Sema<'a, 'b> {
                 }
                 Value::Ref(expr) => {
                     let t = self.infer_expr(expr)?;
-                    Ok(self.ctx.alloc(Type::Ptr(t)))
+                    Ok(Rc::new(Type::Ptr(t)))
                 }
             },
 
@@ -300,7 +269,7 @@ impl<'a, 'b> Sema<'a, 'b> {
                 then,
                 otherwise,
             }) => {
-                let b = self.ctx.alloc(Type::Bool);
+                let b = Rc::new(Type::Bool);
                 self.check_expr(cond, b)?;
 
                 if let Some(otherwise) = otherwise {
@@ -308,7 +277,7 @@ impl<'a, 'b> Sema<'a, 'b> {
                     self.check_block(otherwise, ty)?;
                     Ok(ty)
                 } else {
-                    Ok(self.ctx.alloc(Type::Unit))
+                    Ok(Rc::new(Type::Unit))
                 }
             }
 
@@ -329,7 +298,7 @@ impl<'a, 'b> Sema<'a, 'b> {
                 let value = self.infer_expr(value)?;
 
                 if self.eq(lhs, value) {
-                    Ok(self.ctx.alloc(Type::Unit))
+                    Ok(Rc::new(Type::Unit))
                 } else {
                     Err(SemaError::InvalidAssignment { var: lhs, value })
                 }
@@ -343,7 +312,7 @@ impl<'a, 'b> Sema<'a, 'b> {
         ty
     }
 
-    fn can_cast(&self, from: TypeID, into: TypeID) -> bool {
+    fn can_cast(&self, from: TypeRef<'a>, into: TypeRef<'a>) -> bool {
         match (self.ctx.get(from), self.ctx.get(into)) {
             (Type::Int { .. }, Type::Int { .. }) => true,
             (Type::Float(_), Type::Float(_)) => true,
@@ -368,7 +337,7 @@ impl<'a, 'b> Sema<'a, 'b> {
         &mut self,
         term: Rc<ast::Type<'a>>,
         _arguments: Option<Vec<ast::Type<'a>>>,
-    ) -> Result<'a, TypeID> {
+    ) -> Result<'a, TypeRef<'a>> {
         let ty = match *term {
             ast::Type::Record(f) => {
                 let mut fields = Vec::<Field>::new();
@@ -379,10 +348,7 @@ impl<'a, 'b> Sema<'a, 'b> {
                     });
                 }
 
-                self.ctx.alloc(Type::Record(Record {
-                    fields,
-                    typevariables: vec![],
-                }))
+                Rc::new(Type::Record(Record { fields }))
             }
             ast::Type::Enum(v) => {
                 let mut variants = Vec::<Variant>::new();
@@ -397,28 +363,25 @@ impl<'a, 'b> Sema<'a, 'b> {
                     });
                 }
 
-                self.ctx.alloc(Type::Sum(Sum {
-                    variants,
-                    typevariables: vec![],
-                }))
+                Rc::new(Type::Sum(Sum { variants }))
             }
             ast::Type::Ptr(inner) => {
                 let inner = self.term_to_ty(inner, None)?;
-                self.ctx.alloc(Type::Ptr(inner))
+                Rc::new(Type::Ptr(inner))
             }
             ast::Type::Slice(inner) => {
                 let inner = self.term_to_ty(inner, None)?;
-                self.ctx.alloc(Type::Slice(inner))
+                Rc::new(Type::Slice(inner))
             }
             ast::Type::Array(inner, len) => {
                 let inner = self.term_to_ty(inner, None)?;
-                self.ctx.alloc(Type::Array { inner, len })
+                Rc::new(Type::Array { inner, len })
             }
 
             ast::Type::Ident(ident) => match Type::from_str(ident.0) {
-                Some(ty) => self.ctx.alloc(ty),
+                Some(ty) => ty,
                 None => match self.scopes.get(ident) {
-                    Some(Def::Type(ty)) => self.ctx.alloc(Type::Ref(ty)),
+                    Some(Def::Type(ty)) => Rc::new(Type::Ref(ty)),
                     _ => return Err(SemaError::NotDefined(ident.0)),
                 },
             },
@@ -430,7 +393,7 @@ impl<'a, 'b> Sema<'a, 'b> {
         Ok(ty)
     }
 
-    fn eval_statement(&mut self, statement: Statement<'a>) -> Result<'a, ()> {
+    fn eval_statement(&mut self, statement: &Statement<'a>) -> Result<'a, ()> {
         match statement {
             Statement::LetDecl(LetDecl { ident, ty, value }) => {
                 let ty = if let Some(ty) = ty {
@@ -481,9 +444,9 @@ impl<'a, 'b> Sema<'a, 'b> {
         Ok(())
     }
 
-    fn eval_toplevel(&mut self, node: Ref) -> Result<'a, ()> {
-        match self.ast.get(node) {
-            Node::LetDecl { ident, ty, value } => {
+    fn eval_toplevel_statement(&mut self, statement: &TopLevelStatement<'a>) -> Result<'a, ()> {
+        match *statement {
+            TopLevelStatement::LetDecl(LetDecl { ident, ty, value }) => {
                 let ty = if let Some(ty) = ty {
                     let ty = self.term_to_ty(ty, None)?;
                     self.check_expr(value, ty)?;
@@ -494,9 +457,9 @@ impl<'a, 'b> Sema<'a, 'b> {
 
                 self.scopes.push(ident, Def::Let(ty));
 
-                self.metadata.set(node, ty);
+                self.metadata.set(statement, ty);
             }
-            Node::ConstDecl { ident, ty, value } => {
+            TopLevelStatement::ConstDecl(ConstDecl { ident, ty, value }) => {
                 let ty = if let Some(ty) = ty {
                     let ty = self.term_to_ty(ty, None)?;
                     self.check_expr(value, ty)?;
@@ -507,26 +470,34 @@ impl<'a, 'b> Sema<'a, 'b> {
 
                 self.scopes.push(ident, Def::Const(ty));
 
-                self.metadata.set(node, ty);
+                self.metadata.set(statement, ty);
             }
-            Node::ExternFnDecl { ident, params, ret } => {
-                let return_ty = self.term_to_ty(ret, None)?;
+            TopLevelStatement::ExternFn(ExternFn { ident, params, ret }) => {
+                let return_ty = if let Some(ret) = ret {
+                    self.term_to_ty(ret, None)?
+                } else {
+                    Rc::new(Type::Unit)
+                };
 
                 let parameters = {
-                    let mut vec = Vec::<(&'a str, TypeID)>::new();
+                    let mut vec = Vec::<ril::ExternParam>::new();
                     for param in &params {
-                        vec.push((param.ident, self.term_to_ty(param.ty, None)?));
+                        let ty = self.term_to_ty(param.ty, None)?;
+                        vec.push(ril::ExternParam {
+                            name: param.ident.0,
+                            ty,
+                        });
                     }
 
                     vec
                 };
 
-                let ty = self.ctx.alloc(Type::Fn(FnType {
+                let ty = Type::Fn(FnType {
                     parameters,
                     return_ty,
-                }));
+                });
 
-                self.scopes.push(ident, Def::Fn(ty));
+                self.scopes.push(ident, Def::Fn(Rc::new(ty)));
 
                 self.scopes.down();
 
@@ -535,35 +506,42 @@ impl<'a, 'b> Sema<'a, 'b> {
                     self.scopes.push(param.ident, Def::Const(ty));
                 }
 
-                self.metadata.set(node, ty);
+                self.builder
+                    .append_extern_fn(ident.0, return_ty, parameters);
             }
-            Node::FnDecl {
+            TopLevelStatement::Fn(Fn {
                 ident,
                 params,
                 ret,
                 block,
-            } => {
+            }) => {
+                let cfg = CFGBuilder::new();
+
                 let return_ty = if let Some(ret) = ret {
                     self.term_to_ty(ret, None)?
                 } else {
-                    self.ctx.alloc(Type::Unit)
+                    Rc::new(Type::Unit)
                 };
 
                 let parameters = {
-                    let mut vec = Vec::<(&'a str, TypeID)>::new();
+                    let mut vec = Vec::<ty::Param>::new();
                     for param in &params {
-                        vec.push((param.ident, self.term_to_ty(param.ty, None)?));
+                        let ty = self.term_to_ty(param.ty, None)?;
+                        vec.push(ty::Param {
+                            name: param.ident.0,
+                            ty,
+                        });
                     }
 
                     vec
                 };
 
-                let ty = self.ctx.alloc(Type::Fn(FnType {
+                let ty = Type::Fn(FnType {
                     parameters,
                     return_ty,
-                }));
+                });
 
-                self.scopes.push(ident, Def::Fn(ty));
+                self.scopes.push(ident, Def::Fn(Rc::new(ty)));
 
                 self.scopes.down();
 
@@ -576,48 +554,39 @@ impl<'a, 'b> Sema<'a, 'b> {
                     return_type: Some(return_ty),
                 });
 
-                self.eval_statement(block)?;
+                self.infer_block(block)?;
+
                 self.scopes.up();
 
-                self.metadata.set(node, ty);
+                self.metadata.set(statement, ty);
             }
-            Node::Type { ident, args, body } => {
-                let ty = self.term_to_ty(body, Some(args))?;
+            TopLevelStatement::Type { ident, inner } => {
+                let ty = self.term_to_ty(inner, None)?;
 
                 self.scopes.push(ident, Def::Type(ty));
 
-                self.metadata.set(node, ty);
+                self.metadata.set(statement, ty);
             }
-            _ => {}
+            TopLevelStatement::Import(_) => todo!(),
         }
 
         Ok(())
     }
 
-    pub fn run(mut self) -> (TypedAST<'a>, Vec<SemaError<'a>>) {
+    pub fn run(mut self) -> (RIL<'a, 'b>, Vec<SemaError<'a>>) {
         let mut errors: Vec<SemaError> = vec![];
 
-        match self.ast.root {
-            Some(node) => match self.ast.get(node) {
-                Node::TopLevelScope(lst) => {
-                    for node in lst {
-                        if let Err(err) = self.eval_toplevel(node) {
-                            errors.push(err);
-                        }
-                    }
-                }
-                _ => errors.push(SemaError::InvalidRootNode(node)),
-            },
-            None => errors.push(SemaError::NoRootNode),
+        let statements = std::mem::take(&mut self.ast.statements);
+
+        for statement in statements {
+            match self.eval_toplevel_statement(&statement) {
+                Ok(_) => {}
+                Err(e) => errors.push(e),
+            }
         }
 
-        let tast = TypedAST {
-            data: self.ast.data,
-            root: self.ast.root,
-            meta: self.metadata,
-            context: self.ctx,
-        };
+        let ril = self.builder.build();
 
-        (tast, errors)
+        (ril, errors)
     }
 }

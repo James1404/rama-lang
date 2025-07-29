@@ -1,25 +1,18 @@
-use std::fmt::Display;
-
-use bumpalo::Bump;
-use derive_more::Display;
+use std::{fmt::Display, rc::Rc};
 use itertools::izip;
 
-#[derive(Debug, Clone, Copy, PartialEq, Display, Hash, Eq, PartialOrd, Ord)]
-pub struct TypeID(pub usize);
+pub type TypeRef<'a> = Rc<Type<'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field<'a> {
     pub name: &'a str,
-    pub ty: TypeID,
+    pub ty: Rc<Type<'a>>,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypeVariable(pub TypeID);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Variant<'a> {
     pub name: &'a str,
-    pub ty: Option<TypeID>,
+    pub ty: Option<Rc<Type<'a>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,13 +23,11 @@ pub struct Enum<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sum<'a> {
     pub variants: Vec<Variant<'a>>,
-    pub typevariables: Vec<TypeVariable>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record<'a> {
     pub fields: Vec<Field<'a>>,
-    pub typevariables: Vec<TypeVariable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -55,12 +46,18 @@ pub enum IntSize {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FnType<'a> {
-    pub parameters: Vec<(&'a str, TypeID)>,
-    pub return_ty: TypeID,
+pub struct Param<'a> {
+    pub name: &'a str,
+    pub xsty: Rc<Type<'a>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FnType<'a> {
+    pub parameters: Vec<Param<'a>>,
+    pub return_ty: Rc<Type<'a>>,
+}
+
+#[derive(Debug, Clone, Eq)]
 pub enum Type<'a> {
     Unit,
 
@@ -69,18 +66,18 @@ pub enum Type<'a> {
     Float(FloatKind),
     Str,
 
-    Slice(TypeID),
-    Array { inner: TypeID, len: usize },
+    Slice(Rc<Type<'a>>),
+    Array { inner: Rc<Type<'a>>, len: usize },
 
     Enum(Enum<'a>),
     Record(Record<'a>),
     Sum(Sum<'a>),
 
-    Ptr(TypeID),
+    Ptr(Rc<Type<'a>>),
 
     Fn(FnType<'a>),
 
-    Ref(TypeID),
+    Ref(Rc<Type<'a>>),
 
     Existential,
     Universal,
@@ -123,44 +120,9 @@ impl<'a> Type<'a> {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct TypeContext<'a> {
-    pub data: Vec<Type<'a>>,
-    pub arena: Bump,
-}
-
-impl<'a> TypeContext<'a> {
-    pub fn new() -> Self {
-        Self {
-            data: vec![],
-            arena: Bump::new(),
-        }
-    }
-
-    pub fn alloc(&mut self, ty: Type<'a>) -> TypeID {
-        let index = self.data.len();
-        self.data.push(ty);
-        TypeID(index)
-    }
-
-    pub fn alloc_array(&mut self, inner: Type<'a>, len: usize) -> TypeID {
-        let inner = self.alloc(inner);
-        self.alloc(Type::Array { inner, len })
-    }
-
-    pub fn get(&self, id: TypeID) -> Type<'a> {
-        match self.data[id.0].clone() {
-            Type::Ref(ty) => self.get(ty),
-            ty => ty,
-        }
-    }
-
-    pub fn display(&self, ty: TypeID) -> TypeFmt {
-        TypeFmt { ctx: self, ty }
-    }
-
-    pub fn eq(&self, lhs: TypeID, rhs: TypeID) -> bool {
-        match (self.get(lhs), self.get(rhs)) {
+impl<'a> PartialEq for Type<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
             (Type::Unit, Type::Unit) => true,
 
             (Type::Bool, Type::Bool) => true,
@@ -177,7 +139,7 @@ impl<'a> TypeContext<'a> {
             (Type::Float(lhs), Type::Float(rhs)) => lhs == rhs,
             (Type::Str, Type::Str) => true,
 
-            (Type::Slice(lhs), Type::Slice(rhs)) => self.eq(lhs, rhs),
+            (Type::Slice(lhs), Type::Slice(rhs)) => lhs == rhs,
             (
                 Type::Array {
                     inner: lhs,
@@ -187,18 +149,12 @@ impl<'a> TypeContext<'a> {
                     inner: rhs,
                     len: rlen,
                 },
-            ) => self.eq(lhs, rhs) && llen == rlen,
+            ) => lhs == rhs && llen == rlen,
 
             (Type::Enum(lhs), Type::Enum(rhs)) => lhs == rhs,
             (Type::Record(lhs), Type::Record(rhs)) => 'outer: {
-                for (l, r) in izip!(lhs.fields, rhs.fields) {
-                    if l.name != r.name || !self.eq(l.ty, r.ty) {
-                        break 'outer false;
-                    }
-                }
-
-                for (l, r) in izip!(lhs.typevariables, rhs.typevariables) {
-                    if !self.eq(l.0, r.0) {
+                for (l, r) in izip!(&lhs.fields, &rhs.fields) {
+                    if l.name != r.name || l.ty != r.ty {
                         break 'outer false;
                     }
                 }
@@ -206,14 +162,14 @@ impl<'a> TypeContext<'a> {
                 true
             }
             (Type::Sum(lhs), Type::Sum(rhs)) => 'outer: {
-                for (l, r) in izip!(lhs.variants, rhs.variants) {
+                for (l, r) in izip!(&lhs.variants, &rhs.variants) {
                     if l.name != r.name {
                         break 'outer false;
                     }
 
-                    match (l.ty, r.ty) {
+                    match (&l.ty, &r.ty) {
                         (Some(l), Some(r)) => {
-                            if !self.eq(l, r) {
+                            if l != r {
                                 break 'outer false;
                             }
                         }
@@ -222,25 +178,19 @@ impl<'a> TypeContext<'a> {
                     }
                 }
 
-                for (l, r) in izip!(lhs.typevariables, rhs.typevariables) {
-                    if !self.eq(l.0, r.0) {
-                        break 'outer false;
-                    }
-                }
-
                 true
             }
 
-            (Type::Ptr(lhs), Type::Ptr(rhs)) => self.eq(lhs, rhs),
+            (Type::Ptr(lhs), Type::Ptr(rhs)) => lhs == rhs,
 
             (Type::Fn(lhs), Type::Fn(rhs)) => 'outer: {
-                for (l, r) in izip!(lhs.parameters, rhs.parameters) {
-                    if l.0 != r.0 || !self.eq(l.1, r.1) {
+                for (l, r) in izip!(&lhs.parameters, &rhs.parameters) {
+                    if l.name != r.name || l.ty != r.ty {
                         break 'outer false;
                     }
                 }
 
-                self.eq(lhs.return_ty, rhs.return_ty)
+                lhs.return_ty == rhs.return_ty
             }
 
             _ => false,
@@ -248,21 +198,15 @@ impl<'a> TypeContext<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TypeFmt<'a> {
-    ctx: &'a TypeContext<'a>,
-    ty: TypeID,
-}
-
-impl<'a> Display for TypeFmt<'a> {
+impl<'a> Display for Type<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.ctx.get(self.ty) {
+        match self {
             Type::Unit => write!(f, "unit"),
             Type::Bool => write!(f, "bool"),
             Type::Int { size, signed } => write!(
                 f,
                 "{}{}",
-                if signed { "i" } else { "u" },
+                if *signed { "i" } else { "u" },
                 match size {
                     IntSize::Bits8 => "8",
                     IntSize::Bits16 => "16",
@@ -280,22 +224,22 @@ impl<'a> Display for TypeFmt<'a> {
                 }
             ),
             Type::Str => write!(f, "str"),
-            Type::Slice(inner) => write!(f, "[{}]", self.ctx.display(inner)),
-            Type::Array { inner, len } => write!(f, "[{}; {}]", self.ctx.display(inner), len),
+            Type::Slice(inner) => write!(f, "[{inner}]"),
+            Type::Array { inner, len } => write!(f, "[{inner}; {len}]"),
             Type::Enum(v) => {
                 write!(f, "enum {{")?;
-                for tag in v.tags {
-                    write!(f, "{}", tag)?;
+                for tag in v.tags.iter() {
+                    write!(f, "{tag}")?;
                     write!(f, ",")?;
                 }
                 write!(f, "}}")
             }
             Type::Sum(v) => {
                 write!(f, "sum {{")?;
-                for variant in v.variants {
+                for variant in v.variants.iter() {
                     write!(f, "{}", variant.name)?;
-                    if let Some(ty) = variant.ty {
-                        write!(f, ": {}", self.ctx.display(ty))?;
+                    if let Some(ref ty) = variant.ty {
+                        write!(f, ": {ty}")?;
                     }
                     write!(f, ",")?;
                 }
@@ -303,14 +247,14 @@ impl<'a> Display for TypeFmt<'a> {
             }
             Type::Record(v) => {
                 write!(f, "struct {{")?;
-                for field in v.fields {
+                for field in v.fields.iter() {
                     write!(f, "{}", field.name)?;
-                    write!(f, ": {}", self.ctx.display(field.ty))?;
+                    write!(f, ": {}", field.ty)?;
                     write!(f, ",")?;
                 }
                 write!(f, "}}")
             }
-            Type::Ptr(inner) => write!(f, "*{}", self.ctx.display(inner)),
+            Type::Ptr(inner) => write!(f, "*{inner}"),
             Type::Fn(FnType {
                 parameters,
                 return_ty,
@@ -318,7 +262,7 @@ impl<'a> Display for TypeFmt<'a> {
                 f.write_str("fn(")?;
                 let mut iter = parameters.iter().peekable();
                 while let Some(param) = iter.next() {
-                    write!(f, "{}: {}", param.0, self.ctx.display(param.1))?;
+                    write!(f, "{}: {}", param.name, param.ty)?;
 
                     if iter.peek().is_some() {
                         f.write_str(", ")?;
@@ -326,11 +270,11 @@ impl<'a> Display for TypeFmt<'a> {
                 }
 
                 write!(f, ")")?;
-                write!(f, " -> {}", self.ctx.display(return_ty))?;
+                write!(f, " -> {}", return_ty)?;
 
                 Ok(())
             }
-            Type::Ref(ty) => write!(f, "Ref({}, {})", ty.0, self.ctx.display(ty)),
+            Type::Ref(ty) => write!(f, "Ref({ty})"),
 
             Type::Existential => write!(f, "Existential"),
             Type::Universal => write!(f, "Universal"),

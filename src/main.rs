@@ -81,15 +81,8 @@ where
     let sema = Sema::new(ast);
     let (tast, errors) = sema.run();
 
-    for error in &errors {
-        match error {
-            SemaError::InvalidTerm(term) => {
-                println!("Error: [InvalidTerm] {:#?}", term)
-            }
-            SemaError::Err(msg) => println!("Error: {}", msg),
-            _ => println!("Error: {}", error),
-        }
-    }
+    errors.iter().for_each(|err| println!("Error: {err}"));
+
     if !errors.is_empty() {
         return Ok(());
     }
