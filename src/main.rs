@@ -2,12 +2,6 @@ mod ast;
 mod lexer;
 mod metadata;
 mod parser;
-mod scope;
-mod sema;
-mod ty;
-// mod tast;
-mod ril;
-// mod backend;
 
 use std::{fs, io, path::Path};
 
@@ -20,7 +14,6 @@ use parser::Parser;
 
 use clap::{Command, Parser as ClapParser, Subcommand};
 use clap_complete::{Generator, Shell, generate};
-use sema::{Sema, SemaError};
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "The Rama Compiler")]
@@ -78,26 +71,6 @@ where
         println!("{ast}");
     }
 
-    let sema = Sema::new(ast);
-    let (tast, errors) = sema.run();
-
-    errors.iter().for_each(|err| println!("Error: {err}"));
-
-    if !errors.is_empty() {
-        return Ok(());
-    }
-
-    //    let builder = ril::Builder::new(&tast);
-    //    let ril = builder.build();
-    //
-    //    ril.pretty_print();
-    //
-    //    println!("<== Starting CodeGen ==>");
-    //    match backend::compile(ril, metadata, cli.backend) {
-    //        Ok(_) => {}
-    //        Err(err) => eprintln!("{}", err),
-    //    }
-    //
     Ok(())
 }
 
