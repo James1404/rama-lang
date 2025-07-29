@@ -1,7 +1,7 @@
 use derive_more::Display;
 use std::{fmt::Display, rc::Rc};
 
-use crate::lexer::{Token, TokenType};
+use crate::lexer::{TokenType};
 
 #[derive(Debug, Clone, Copy, Display)]
 pub enum UnOp {
@@ -509,13 +509,13 @@ impl Display for If<'_> {
 }
 
 impl Display for Match<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
 }
 
 impl Display for MatchBranch<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
 }

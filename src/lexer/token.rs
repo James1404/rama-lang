@@ -151,21 +151,3 @@ pub static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
 
     "as" => TokenType::As,
 };
-
-pub fn precedence(token: Token<'_>) -> i32 {
-    match token.ty {
-        TokenType::Plus => 1,
-        TokenType::Minus => 2,
-        TokenType::Asterix => 3,
-        TokenType::Slash => 4,
-
-        TokenType::LAngle
-        | TokenType::LessEq
-        | TokenType::RAngle
-        | TokenType::GreaterEq
-        | TokenType::EqualEqual
-        | TokenType::NotEqual => 4,
-
-        _ => -1,
-    }
-}

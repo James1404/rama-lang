@@ -1,19 +1,8 @@
-mod ast;
-mod lexer;
-mod metadata;
-mod parser;
-
-use std::{fs, io, path::Path};
-
-#[macro_use]
-extern crate derive_more;
-
-use lexer::Lexer;
-use metadata::Metadata;
-use parser::Parser;
+use std::{fs, io};
 
 use clap::{Command, Parser as ClapParser, Subcommand};
 use clap_complete::{Generator, Shell, generate};
+use rama_lang::{compile_file, Config, Output};
 
 #[derive(ClapParser)]
 #[command(version, about, author, long_about = "The Rama Compiler")]
@@ -39,57 +28,15 @@ enum Commands {
     Compile { file: String },
 }
 
-fn compile<P>(path: P, cli: &Cli) -> io::Result<()>
-where
-    P: AsRef<Path> + Clone,
-{
-    let src = std::fs::read_to_string(path.clone())?;
-
-    let metadata = Metadata::new(path.as_ref(), Path::new("build/"))?;
-
-    let lexer = Lexer::new(&src);
-    let tokens = lexer.run();
-
-    if cli.print_tokens {
-        println!("<== Printing Tokens ==>");
-        for tok in &tokens {
-            println!("{}: \"{}\"", Into::<&'static str>::into(tok.ty), tok.text);
-        }
-        println!()
-    }
-
-    let parser = Parser::new(&tokens);
-    let ast = match parser.run() {
-        Ok(ast) => ast,
-        Err(err) => {
-            err.error();
-            return Ok(());
-        }
-    };
-
-    if cli.print_ast {
-        println!("{ast}");
-    }
-
-    Ok(())
-}
-
-fn tests(cli: &Cli) -> io::Result<()> {
-    let paths = fs::read_dir("./test")?;
-    let paths = paths.into_iter().flatten().collect::<Vec<fs::DirEntry>>();
-
-    for (idx, path) in paths.into_iter().enumerate() {
-        let path = path.path();
-
-        if path.is_file() {
-            println!("<=== Running test {} \"{}\" ===>", idx, path.display());
-            compile(&path, cli)?;
-            println!("<=== Ending Test \"{}\" ===>", path.display());
-            println!();
+impl From<&Cli> for Config {
+    fn from(value: &Cli) -> Self {
+        Self {
+            output: Output {
+                ast: value.print_ast,
+                tokens: value.print_tokens,
+            },
         }
     }
-
-    Ok(())
 }
 
 #[allow(dead_code)]
@@ -102,6 +49,24 @@ fn print_completions<G: Generator>(generator: G, cmd: &mut Command) {
     );
 }
 
+fn tests(cli: &Cli) -> io::Result<()> {
+    let paths = fs::read_dir("./test")?;
+    let paths = paths.into_iter().flatten().collect::<Vec<fs::DirEntry>>();
+
+    for (idx, path) in paths.into_iter().enumerate() {
+        let path = path.path();
+
+        if path.is_file() {
+            println!("<=== Running test {} \"{}\" ===>", idx, path.display());
+            compile_file(&path, cli.into())?;
+            println!("<=== Ending Test \"{}\" ===>", path.display());
+            println!();
+        }
+    }
+
+    Ok(())
+}
+
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
@@ -110,7 +75,7 @@ fn main() -> io::Result<()> {
             tests(&cli)?;
         }
         Some(Commands::Compile { file }) => {
-            compile(file, &cli)?;
+            compile_file(file, (&cli).into())?;
         }
         None => {}
     }

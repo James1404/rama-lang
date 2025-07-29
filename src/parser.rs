@@ -7,7 +7,7 @@ use crate::{
         self, AST, BinOp, Block, ConstDecl, Expr, ExternFn, Fn, Ident, If, Import, LetDecl,
         LiteralRecordField, Param, Statement, TopLevelStatement, Type, Value,
     },
-    lexer::{Token, TokenType, precedence},
+    lexer::{Token, TokenType},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -66,24 +66,6 @@ impl<'a> Cursor<'a> {
         match self.tokens.get(self.position) {
             Some(tok) => {
                 if tok.ty == expected {
-                    self.position += 1;
-                    true
-                } else {
-                    false
-                }
-            }
-            None => false,
-        }
-    }
-
-    fn advance_if_many(&mut self, expected: &[TokenType]) -> bool {
-        if self.eof() {
-            return false;
-        }
-
-        match self.tokens.get(self.position) {
-            Some(tok) => {
-                if expected.contains(&tok.ty) {
                     self.position += 1;
                     true
                 } else {
@@ -173,18 +155,14 @@ impl Operator {
     }
 }
 
-pub struct Parser<'a: 'b, 'b> {
-    ast: AST<'b>,
+pub struct Parser<'a> {
     cursor: Cursor<'a>,
 }
 
-impl<'a, 'b> Parser<'a, 'b> {
+impl<'a, 'b> Parser<'a> {
     pub fn new(tokens: &'a Vec<Token<'a>>) -> Self {
         Self {
             cursor: Cursor::new(tokens),
-            ast: AST {
-                statements: Vec::new(),
-            },
         }
     }
 
@@ -825,7 +803,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
     }
 
-    pub fn run(mut self) -> Result<'a, AST<'b>> {
+    pub fn run(mut self) -> Result<'a, AST<'a>> {
         let mut statements: Vec<TopLevelStatement> = vec![];
 
         while !self.cursor.eof() {

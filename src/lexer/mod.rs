@@ -3,7 +3,7 @@ pub mod token;
 
 use position::Position;
 
-pub use crate::lexer::token::{Token, TokenType, precedence};
+pub use crate::lexer::token::{Token, TokenType};
 
 pub struct Lexer<'a> {
     position: Position,
